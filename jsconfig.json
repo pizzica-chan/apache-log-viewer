@@ -1,0 +1,9 @@
+{
+  "compilerOptions": {
+    "target": "ES2020",
+    "module": "ESNext",
+    "checkJs": false
+  },
+  "include": ["alv/static/**/*.js"],
+  "exclude": ["node_modules"]
+}

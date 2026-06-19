@@ -136,6 +136,16 @@ async function refreshBrowseList() {
   }
 }
 
+function addCell(tr, content, options = {}) {
+  const td = document.createElement("td");
+  const text = content == null || content === "" ? "-" : String(content);
+  td.textContent = text;
+  if (options.className) td.className = options.className;
+  if (options.title) td.title = options.title;
+  tr.appendChild(td);
+  return td;
+}
+
 async function loadLogs() {
   const res = await fetch("/api/logs?" + buildQuery());
   const data = await res.json();
@@ -150,21 +160,33 @@ async function loadLogs() {
   els.rows.innerHTML = "";
   for (const item of data.items) {
     const tr = document.createElement("tr");
-    tr.innerHTML = `
-      <td>${item.timestamp}</td>
-      <td class="${statusClass(item.status)}">${item.status ?? "-"}</td>
-      <td>${item.method}</td>
-      <td class="path" title="${item.path}">${item.path}</td>
-      <td title="${item.forwarded_for ? `X-Forwarded-For: ${item.forwarded_for}` : item.host}">${item.client_host}</td>
-      <td title="${item.host}">${item.host}</td>
-      <td>${item.bytes_sent ?? "-"}</td>
-      <td class="source" title="${item.source}">${item.source}:${item.line_no}</td>
-    `;
+    const clientTitle = item.forwarded_for
+      ? "X-Forwarded-For: " + item.forwarded_for
+      : item.host;
+
+    addCell(tr, item.timestamp);
+    addCell(tr, item.status ?? "-", { className: statusClass(item.status) });
+    addCell(tr, item.method);
+    addCell(tr, item.path, { className: "path", title: item.path });
+    addCell(tr, item.client_host, { title: clientTitle });
+    addCell(tr, item.host, { title: item.host });
+    addCell(tr, item.bytes_sent ?? "-");
+    addCell(tr, item.source + ":" + item.line_no, {
+      className: "source",
+      title: item.source,
+    });
+
     tr.addEventListener("click", () => {
-      const xffLine = item.forwarded_for ? `X-Forwarded-For: ${item.forwarded_for}\n` : "";
+      const xffLine = item.forwarded_for
+        ? "X-Forwarded-For: " + item.forwarded_for + "\n"
+        : "";
       els.detailBody.textContent =
-        `ファイル: ${item.source}\n行番号: ${item.line_no}\n` +
-        `Client: ${item.client_host}\nRemote: ${item.host}\n${xffLine}\n${item.raw}`;
+        "ファイル: " + item.source + "\n" +
+        "行番号: " + item.line_no + "\n" +
+        "Client: " + item.client_host + "\n" +
+        "Remote: " + item.host + "\n" +
+        xffLine + "\n" +
+        item.raw;
       els.detail.showModal();
     });
     els.rows.appendChild(tr);
