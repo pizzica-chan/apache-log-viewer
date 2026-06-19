@@ -133,8 +133,49 @@ button {
 }
 
 .table-wrap {
+  position: relative;
   overflow: auto;
   max-height: calc(100vh - 280px);
+}
+
+.loading-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.875rem;
+  background: rgba(15, 20, 25, 0.78);
+  backdrop-filter: blur(2px);
+}
+
+.loading-overlay[hidden] {
+  display: none !important;
+}
+
+.loading-spinner {
+  width: 2.25rem;
+  height: 2.25rem;
+  border: 3px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.75s linear infinite;
+}
+
+#loading-text {
+  margin: 0;
+  color: var(--text);
+  font-size: 0.875rem;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+body.is-loading .table-wrap tbody tr {
+  pointer-events: none;
 }
 
 table {
@@ -262,5 +303,9 @@ dialog pre {
     --text: #1f2328;
     --muted: #656d76;
     --border: #d0d7de;
+  }
+
+  .loading-overlay {
+    background: rgba(246, 248, 250, 0.82);
   }
 }

@@ -2,15 +2,14 @@
 
 from __future__ import annotations
 
+import heapq
 import re
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Iterator
+from typing import Callable, Iterator
 
-# Common / Combined / VirtualHost / X-Forwarded-For 付き Combined に対応。
-# 先頭の可変部分 (VirtualHost, X-Forwarded-For, remote host) は
-# ident 直前までを leading として取得し、末尾から remote host を分離する。
+# bytes フィールドまで解析し、referer / user_agent は読み飛ばす。
 _LOG_RE = re.compile(
     r"^(?:\S+:\d+\s+)?"  # 任意: VirtualHost
     r"(?P<leading>.+?)\s+"
@@ -20,9 +19,6 @@ _LOG_RE = re.compile(
     r'"(?P<request>[^"]*)"\s+'
     r"(?P<status>\d+|-)\s+"
     r"(?P<bytes>\S+)"
-    r'(?:\s+"(?P<referer>[^"]*)")?'
-    r'(?:\s+"(?P<user_agent>[^"]*)")?'
-    r"(?:\s+.*)?$"
 )
 
 _REQUEST_RE = re.compile(r"^(\S+)\s+(\S+)\s+(\S+)$")
@@ -45,30 +41,19 @@ _MONTH = {
 
 @dataclass(slots=True)
 class LogEntry:
-    source: str
+    file_id: int
     line_no: int
-    raw: str
+    byte_offset: int
     host: str
+    client_host: str
     forwarded_for: str
-    ident: str
-    authuser: str
     timestamp: datetime
     method: str
     path: str
-    protocol: str
     status: int | None
 
-    @property
-    def client_host(self) -> str:
-        """実クライアント IP（X-Forwarded-For 先頭、なければ remote host）."""
-        if self.forwarded_for:
-            first = self.forwarded_for.split(",")[0].strip()
-            if first and first != "-":
-                return first
-        return self.host
-
-    def to_row_dict(self) -> dict:
-        """一覧 API 用の軽量 dict（raw 等の大きなフィールドは含めない）."""
+    def to_row_dict(self, source_name: str) -> dict:
+        """一覧 API 用の軽量 dict."""
         return {
             "timestamp": self.timestamp.isoformat(),
             "status": self.status,
@@ -77,14 +62,13 @@ class LogEntry:
             "client_host": self.client_host,
             "host": self.host,
             "forwarded_for": self.forwarded_for,
-            "source": self.source,
+            "source": source_name,
             "line_no": self.line_no,
         }
 
 
 def parse_timestamp(value: str) -> datetime:
     """Apache 日時 `[10/Oct/2000:13:55:36 -0700]` を解析する."""
-    # タイムゾーン省略時
     if value[-5] not in "+-":
         value = value + " +0000"
     day, month, rest = value.split("/", 2)
@@ -124,7 +108,17 @@ def split_leading_hosts(leading: str) -> tuple[str, str]:
     return forwarded_for, host
 
 
-def parse_line(raw: str, *, source: str = "", line_no: int = 0) -> LogEntry | None:
+def _client_host(forwarded_for: str, host: str) -> str:
+    if forwarded_for:
+        first = forwarded_for.split(",", 1)[0].strip()
+        if first and first != "-":
+            return first
+    return host
+
+
+def parse_line(
+    raw: str, *, file_id: int = 0, line_no: int = 0, byte_offset: int = 0
+) -> LogEntry | None:
     line = raw.rstrip("\n\r")
     match = _LOG_RE.match(line)
     if not match:
@@ -137,41 +131,92 @@ def parse_line(raw: str, *, source: str = "", line_no: int = 0) -> LogEntry | No
 
     req_match = _REQUEST_RE.match(request)
     if req_match:
-        method, path, protocol = req_match.groups()
+        method, path, _protocol = req_match.groups()
     else:
-        method, path, protocol = request, "-", "-"
+        method, path = request, "-"
 
     status_val = None if status == "-" else int(status)
 
     return LogEntry(
-        source=source,
+        file_id=file_id,
         line_no=line_no,
-        raw=line,
+        byte_offset=byte_offset,
         host=host,
+        client_host=_client_host(forwarded_for, host),
         forwarded_for=forwarded_for,
-        ident=groups["ident"],
-        authuser=groups["authuser"],
         timestamp=parse_timestamp(groups["timestamp"]),
         method=method,
         path=path,
-        protocol=protocol,
         status=status_val,
     )
 
 
+def _iter_file_entries(file_id: int, path: Path) -> Iterator[LogEntry]:
+    with path.open("rb") as fh:
+        line_no = 0
+        while True:
+            offset = fh.tell()
+            line_bytes = fh.readline()
+            if not line_bytes:
+                break
+            line_no += 1
+            if not line_bytes.strip():
+                continue
+            line = line_bytes.decode("utf-8", errors="replace")
+            entry = parse_line(
+                line, file_id=file_id, line_no=line_no, byte_offset=offset
+            )
+            if entry:
+                yield entry
+
+
 def iter_entries(paths: list[Path]) -> Iterator[LogEntry]:
-    for path in paths:
-        with path.open(encoding="utf-8", errors="replace") as fh:
-            for line_no, line in enumerate(fh, start=1):
-                if not line.strip():
-                    continue
-                entry = parse_line(line, source=path.name, line_no=line_no)
-                if entry:
-                    yield entry
+    for file_id, path in enumerate(paths):
+        yield from _iter_file_entries(file_id, path)
 
 
-def load_entries(paths: list[Path], *, sort: bool = True) -> list[LogEntry]:
-    entries = list(iter_entries(paths))
-    if sort:
-        entries.sort(key=lambda e: (e.timestamp, e.source, e.line_no))
-    return entries
+def load_entries(
+    paths: list[Path],
+    *,
+    sort: bool = True,
+    progress_callback: Callable[[int], None] | None = None,
+) -> list[LogEntry]:
+    if not sort:
+        entries = list(iter_entries(paths))
+        if progress_callback:
+            progress_callback(len(entries))
+        return entries
+
+    heap: list[tuple[datetime, int, int, LogEntry, Iterator[LogEntry]]] = []
+    for file_id, path in enumerate(paths):
+        it = _iter_file_entries(file_id, path)
+        try:
+            entry = next(it)
+        except StopIteration:
+            continue
+        heapq.heappush(heap, (entry.timestamp, entry.file_id, entry.line_no, entry, it))
+
+    result: list[LogEntry] = []
+    while heap:
+        _, _, _, entry, it = heapq.heappop(heap)
+        result.append(entry)
+        if progress_callback and len(result) % 50000 == 0:
+            progress_callback(len(result))
+        try:
+            next_entry = next(it)
+            heapq.heappush(
+                heap,
+                (
+                    next_entry.timestamp,
+                    next_entry.file_id,
+                    next_entry.line_no,
+                    next_entry,
+                    it,
+                ),
+            )
+        except StopIteration:
+            pass
+
+    if progress_callback:
+        progress_callback(len(result))
+    return result

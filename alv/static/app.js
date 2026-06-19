@@ -31,7 +31,35 @@ const els = {
   browseList: document.getElementById("browse-list"),
   browseUp: document.getElementById("browse-up"),
   browseSelect: document.getElementById("browse-select"),
+  loadingOverlay: document.getElementById("loading-overlay"),
+  loadingText: document.getElementById("loading-text"),
 };
+
+let loadingDepth = 0;
+let backgroundLoading = false;
+
+function syncLoadingOverlay() {
+  const visible = loadingDepth > 0 || backgroundLoading;
+  els.loadingOverlay.hidden = !visible;
+  document.body.classList.toggle("is-loading", visible);
+}
+
+function pushLoading(message) {
+  loadingDepth += 1;
+  if (message) els.loadingText.textContent = message;
+  syncLoadingOverlay();
+}
+
+function popLoading() {
+  loadingDepth = Math.max(0, loadingDepth - 1);
+  syncLoadingOverlay();
+}
+
+function setBackgroundLoading(loading, message) {
+  backgroundLoading = loading;
+  if (message) els.loadingText.textContent = message;
+  syncLoadingOverlay();
+}
 
 function statusClass(code) {
   if (!code) return "";
@@ -60,6 +88,53 @@ function buildQuery() {
   return params;
 }
 
+let loadPollTimer = null;
+
+function setLoadingUi(loading) {
+  els.search.disabled = loading;
+  els.reset.disabled = loading;
+  els.loadDir.disabled = loading;
+  els.browse.disabled = loading;
+}
+
+function clearLoadPoll() {
+  if (loadPollTimer) {
+    clearTimeout(loadPollTimer);
+    loadPollTimer = null;
+  }
+}
+
+function scheduleLoadPoll() {
+  if (loadPollTimer) return;
+  loadPollTimer = setTimeout(async () => {
+    loadPollTimer = null;
+    const data = await fetchMeta();
+    updateMeta(data);
+    if (data.loading) {
+      scheduleLoadPoll();
+      return;
+    }
+    offset = 0;
+    await loadLogs();
+  }, 1000);
+}
+
+async function fetchMeta() {
+  const res = await fetch("/api/meta");
+  return res.json();
+}
+
+async function loadMeta(options = {}) {
+  if (!options.silent) pushLoading("情報を取得中...");
+  try {
+    const data = await fetchMeta();
+    updateMeta(data);
+    return data;
+  } finally {
+    if (!options.silent) popLoading();
+  }
+}
+
 function updateMeta(data) {
   if (data.directory) {
     els.logDir.value = data.directory;
@@ -67,18 +142,35 @@ function updateMeta(data) {
   if (data.files.length === 0) {
     els.meta.textContent = "ログファイル未読み込み — ディレクトリを選択してください";
     els.fileList.textContent = "";
+    setBackgroundLoading(false);
+    setLoadingUi(false);
+    clearLoadPoll();
+    return;
+  }
+  if (data.load_error) {
+    els.meta.textContent = `読み込みエラー: ${data.load_error}`;
+    els.fileList.textContent = data.files.join(" | ");
+    setBackgroundLoading(false);
+    setLoadingUi(false);
+    clearLoadPoll();
+    return;
+  }
+  if (data.loading) {
+    const message = `ログを読み込み中... ${data.load_progress.toLocaleString()} 行`;
+    els.meta.textContent = `${message} / ファイル ${data.files.length} 件`;
+    els.fileList.textContent = data.files.join(" | ");
+    setBackgroundLoading(true, message);
+    setLoadingUi(true);
+    scheduleLoadPoll();
     return;
   }
   els.meta.textContent =
     `${data.total.toLocaleString()} 行 / ファイル ${data.files.length} 件` +
     (data.first ? ` / ${data.first} 〜 ${data.last}` : "");
   els.fileList.textContent = data.files.join(" | ");
-}
-
-async function loadMeta() {
-  const res = await fetch("/api/meta");
-  const data = await res.json();
-  updateMeta(data);
+  setBackgroundLoading(false);
+  setLoadingUi(false);
+  clearLoadPoll();
 }
 
 async function loadDirectory() {
@@ -87,19 +179,26 @@ async function loadDirectory() {
     alert("ログディレクトリを入力してください。");
     return;
   }
-  const res = await fetch("/api/load", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ directory }),
-  });
-  const data = await res.json();
-  if (!res.ok) {
-    alert(data.error || "読み込みに失敗しました。");
-    return;
+  pushLoading("ディレクトリを読み込み中...");
+  try {
+    const res = await fetch("/api/load", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ directory }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      alert(data.error || "読み込みに失敗しました。");
+      return;
+    }
+    offset = 0;
+    updateMeta(data);
+    if (!data.loading) {
+      await loadLogs();
+    }
+  } finally {
+    popLoading();
   }
-  offset = 0;
-  updateMeta(data);
-  await loadLogs();
 }
 
 async function openBrowseDialog() {
@@ -147,61 +246,88 @@ function addCell(tr, content, options = {}) {
 }
 
 async function loadLogs() {
-  const res = await fetch("/api/logs?" + buildQuery());
-  const data = await res.json();
-  lastTotal = data.total;
-  els.resultCount.textContent = `${data.total.toLocaleString()} 件ヒット`;
-  const page = Math.floor(offset / limit) + 1;
-  const pages = Math.max(1, Math.ceil(data.total / limit));
-  els.pageInfo.textContent = `${page} / ${pages}`;
-  els.prev.disabled = offset <= 0;
-  els.next.disabled = offset + limit >= data.total;
+  pushLoading("ログを検索中...");
+  try {
+    const res = await fetch("/api/logs?" + buildQuery());
+    const data = await res.json();
+    if (data.loading) {
+      const message = `ログを読み込み中... ${data.load_progress.toLocaleString()} 行`;
+      els.resultCount.textContent = message;
+      els.pageInfo.textContent = "-";
+      els.rows.innerHTML = "";
+      els.prev.disabled = true;
+      els.next.disabled = true;
+      setBackgroundLoading(true, message);
+      setLoadingUi(true);
+      return;
+    }
+    if (!res.ok) {
+      alert(data.error || "取得に失敗しました。");
+      return;
+    }
+    setBackgroundLoading(false);
+    setLoadingUi(false);
+    lastTotal = data.total;
+    els.resultCount.textContent = `${data.total.toLocaleString()} 件ヒット`;
+    const page = Math.floor(offset / limit) + 1;
+    const pages = Math.max(1, Math.ceil(data.total / limit));
+    els.pageInfo.textContent = `${page} / ${pages}`;
+    els.prev.disabled = offset <= 0;
+    els.next.disabled = offset + limit >= data.total;
 
-  els.rows.innerHTML = "";
-  for (const item of data.items) {
-    const tr = document.createElement("tr");
-    const clientTitle = item.forwarded_for
-      ? "X-Forwarded-For: " + item.forwarded_for
-      : item.host;
+    els.rows.innerHTML = "";
+    for (const item of data.items) {
+      const tr = document.createElement("tr");
+      const clientTitle = item.forwarded_for
+        ? "X-Forwarded-For: " + item.forwarded_for
+        : item.host;
 
-    addCell(tr, item.timestamp);
-    addCell(tr, item.status ?? "-", { className: statusClass(item.status) });
-    addCell(tr, item.method);
-    addCell(tr, item.path, { className: "path", title: item.path });
-    addCell(tr, item.client_host, { title: clientTitle });
-    addCell(tr, item.host, { title: item.host });
-    addCell(tr, item.source + ":" + item.line_no, {
-      className: "source",
-      title: item.source,
-    });
+      addCell(tr, item.timestamp);
+      addCell(tr, item.status ?? "-", { className: statusClass(item.status) });
+      addCell(tr, item.method);
+      addCell(tr, item.path, { className: "path", title: item.path });
+      addCell(tr, item.client_host, { title: clientTitle });
+      addCell(tr, item.host, { title: item.host });
+      addCell(tr, item.source + ":" + item.line_no, {
+        className: "source",
+        title: item.source,
+      });
 
-    tr.addEventListener("click", async () => {
-      const res = await fetch(
-        "/api/logs/detail?" +
-          new URLSearchParams({
-            source: item.source,
-            line_no: String(item.line_no),
-            timestamp: item.timestamp,
-          })
-      );
-      const detail = await res.json();
-      if (!res.ok) {
-        alert(detail.error || "詳細の取得に失敗しました。");
-        return;
-      }
-      const xffLine = detail.forwarded_for
-        ? "X-Forwarded-For: " + detail.forwarded_for + "\n"
-        : "";
-      els.detailBody.textContent =
-        "ファイル: " + detail.source + "\n" +
-        "行番号: " + detail.line_no + "\n" +
-        "Client: " + detail.client_host + "\n" +
-        "Remote: " + detail.host + "\n" +
-        xffLine + "\n" +
-        detail.raw;
-      els.detail.showModal();
-    });
-    els.rows.appendChild(tr);
+      tr.addEventListener("click", async () => {
+        pushLoading("詳細を取得中...");
+        try {
+          const detailRes = await fetch(
+            "/api/logs/detail?" +
+              new URLSearchParams({
+                source: item.source,
+                line_no: String(item.line_no),
+                timestamp: item.timestamp,
+              })
+          );
+          const detail = await detailRes.json();
+          if (!detailRes.ok) {
+            alert(detail.error || "詳細の取得に失敗しました。");
+            return;
+          }
+          const xffLine = detail.forwarded_for
+            ? "X-Forwarded-For: " + detail.forwarded_for + "\n"
+            : "";
+          els.detailBody.textContent =
+            "ファイル: " + detail.source + "\n" +
+            "行番号: " + detail.line_no + "\n" +
+            "Client: " + detail.client_host + "\n" +
+            "Remote: " + detail.host + "\n" +
+            xffLine + "\n" +
+            detail.raw;
+          els.detail.showModal();
+        } finally {
+          popLoading();
+        }
+      });
+      els.rows.appendChild(tr);
+    }
+  } finally {
+    popLoading();
   }
 }
 
@@ -267,4 +393,8 @@ document.addEventListener("keydown", (e) => {
   }
 });
 
-loadMeta().then(loadLogs);
+loadMeta().then(async (data) => {
+  if (!data.loading) {
+    await loadLogs();
+  }
+});

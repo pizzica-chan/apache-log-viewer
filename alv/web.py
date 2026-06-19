@@ -5,13 +5,15 @@ from __future__ import annotations
 import json
 import mimetypes
 import re
+import threading
 import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 from .discovery import find_log_files
 from .filters import match_entry, parse_datetime, parse_status_filter
-from .parser import load_entries
+from .line_reader import LineReader
+from .parser import LogEntry, load_entries
 
 STATIC_DIR = Path(__file__).parent / "static"
 
@@ -19,7 +21,11 @@ STATIC_DIR = Path(__file__).parent / "static"
 class LogViewerHandler(BaseHTTPRequestHandler):
     log_paths: list[Path] = []
     log_root: Path | None = None
-    entries_cache: list | None = None
+    entries_cache: list[LogEntry] | None = None
+    load_status: str = "idle"
+    load_error: str | None = None
+    load_progress: int = 0
+    _load_lock = threading.Lock()
 
     def log_message(self, format: str, *args) -> None:  # noqa: A003
         return
@@ -54,26 +60,80 @@ class LogViewerHandler(BaseHTTPRequestHandler):
             raise ValueError("JSON オブジェクトを指定してください")
         return data
 
-    def _get_entries(self) -> list:
-        if self.entries_cache is None:
-            self.entries_cache = load_entries(self.log_paths, sort=True)
-        return self.entries_cache
+    @classmethod
+    def _source_names(cls) -> list[str]:
+        return [p.name for p in cls.log_paths]
 
-    def _meta_payload(self) -> dict:
-        entries = self._get_entries()
-        return {
-            "directory": str(self.log_root) if self.log_root else None,
-            "files": [p.name for p in self.log_paths],
-            "total": len(entries),
+    @classmethod
+    def _source_name(cls, entry: LogEntry) -> str:
+        return cls.log_paths[entry.file_id].name
+
+    @classmethod
+    def _start_load(cls) -> None:
+        with cls._load_lock:
+            if cls.load_status == "loading":
+                return
+            cls.load_status = "loading"
+            cls.load_error = None
+            cls.load_progress = 0
+            cls.entries_cache = None
+
+        def worker() -> None:
+            try:
+                def progress(count: int) -> None:
+                    cls.load_progress = count
+
+                entries = load_entries(cls.log_paths, sort=True, progress_callback=progress)
+                with cls._load_lock:
+                    cls.entries_cache = entries
+                    cls.load_status = "ready"
+                    cls.load_progress = len(entries)
+            except Exception as exc:  # noqa: BLE001
+                with cls._load_lock:
+                    cls.load_status = "error"
+                    cls.load_error = str(exc)
+                    cls.entries_cache = []
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    @classmethod
+    def _ensure_load_started(cls) -> None:
+        if cls.log_paths and cls.load_status == "idle":
+            cls._start_load()
+
+    @classmethod
+    def _get_entries(cls) -> list[LogEntry]:
+        cls._ensure_load_started()
+        if cls.entries_cache is None:
+            return []
+        return cls.entries_cache
+
+    @classmethod
+    def _meta_payload(cls) -> dict:
+        cls._ensure_load_started()
+        entries = cls._get_entries()
+        loading = cls.load_status == "loading"
+        total = cls.load_progress if loading else len(entries)
+        payload: dict = {
+            "directory": str(cls.log_root) if cls.log_root else None,
+            "files": cls._source_names(),
+            "loading": loading,
+            "load_status": cls.load_status,
+            "load_progress": cls.load_progress,
+            "total": total,
             "first": entries[0].timestamp.isoformat() if entries else None,
             "last": entries[-1].timestamp.isoformat() if entries else None,
         }
+        if cls.load_error:
+            payload["load_error"] = cls.load_error
+        return payload
 
+    @classmethod
     def _find_entry(
-        self, source: str, line_no: int, timestamp: str | None = None
-    ) -> object | None:
-        for entry in self._get_entries():
-            if entry.source != source or entry.line_no != line_no:
+        cls, source: str, line_no: int, timestamp: str | None = None
+    ) -> LogEntry | None:
+        for entry in cls._get_entries():
+            if cls._source_name(entry) != source or entry.line_no != line_no:
                 continue
             if timestamp and entry.timestamp.isoformat() != timestamp:
                 continue
@@ -118,6 +178,10 @@ class LogViewerHandler(BaseHTTPRequestHandler):
         LogViewerHandler.log_root = root
         LogViewerHandler.log_paths = paths
         LogViewerHandler.entries_cache = None
+        LogViewerHandler.load_status = "idle"
+        LogViewerHandler.load_error = None
+        LogViewerHandler.load_progress = 0
+        LogViewerHandler._start_load()
         return self._meta_payload(), 200
 
     def do_GET(self) -> None:  # noqa: N802
@@ -141,6 +205,23 @@ class LogViewerHandler(BaseHTTPRequestHandler):
             return self._send_json(payload)
 
         if parsed.path == "/api/logs":
+            if self.load_status == "loading":
+                return self._send_json(
+                    {
+                        "loading": True,
+                        "load_progress": self.load_progress,
+                        "total": 0,
+                        "offset": 0,
+                        "limit": 0,
+                        "items": [],
+                    }
+                )
+            if self.load_status == "error":
+                return self._send_json(
+                    {"error": self.load_error or "読み込みに失敗しました"},
+                    500,
+                )
+
             entries = self._get_entries()
             status = parse_status_filter(params.get("status", [""])[0])
             path_pat = params.get("path", [""])[0]
@@ -173,20 +254,39 @@ class LogViewerHandler(BaseHTTPRequestHandler):
             }
 
             total = 0
-            page: list = []
-            for entry in entries:
-                if not match_entry(entry, **match_kwargs):
-                    continue
-                if offset <= total < offset + limit:
-                    page.append(entry)
-                total += 1
+            page: list[LogEntry] = []
 
+            def collect(read_raw):
+                nonlocal total
+                for entry in entries:
+                    if not match_entry(
+                        entry,
+                        source_name=self._source_name(entry),
+                        read_raw=read_raw,
+                        **match_kwargs,
+                    ):
+                        continue
+                    if offset <= total < offset + limit:
+                        page.append(entry)
+                    total += 1
+
+            if grep_re:
+                with LineReader(self.log_paths) as reader:
+                    collect(
+                        lambda entry: reader.read(entry.file_id, entry.byte_offset)
+                    )
+            else:
+                collect(None)
+
+            source_names = self._source_names()
             return self._send_json(
                 {
                     "total": total,
                     "offset": offset,
                     "limit": limit,
-                    "items": [e.to_row_dict() for e in page],
+                    "items": [
+                        e.to_row_dict(source_names[e.file_id]) for e in page
+                    ],
                 }
             )
 
@@ -203,14 +303,18 @@ class LogViewerHandler(BaseHTTPRequestHandler):
             entry = self._find_entry(source, line_no, timestamp)
             if entry is None:
                 return self._send_json({"error": "該当行が見つかりません"}, 404)
+
+            with LineReader(self.log_paths) as reader:
+                raw = reader.read(entry.file_id, entry.byte_offset)
+
             return self._send_json(
                 {
-                    "source": entry.source,
+                    "source": self._source_name(entry),
                     "line_no": entry.line_no,
                     "client_host": entry.client_host,
                     "host": entry.host,
                     "forwarded_for": entry.forwarded_for,
-                    "raw": entry.raw,
+                    "raw": raw,
                 }
             )
 
@@ -241,6 +345,11 @@ def serve(
     LogViewerHandler.log_paths = [p.resolve() for p in paths]
     LogViewerHandler.log_root = log_root.resolve() if log_root else None
     LogViewerHandler.entries_cache = None
+    LogViewerHandler.load_status = "idle"
+    LogViewerHandler.load_error = None
+    LogViewerHandler.load_progress = 0
+    if paths:
+        LogViewerHandler._start_load()
     server = ThreadingHTTPServer((host, port), LogViewerHandler)
     print(f"Apache Log Viewer: http://{host}:{port}")
     if LogViewerHandler.log_root:

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 from datetime import datetime
+from typing import Callable
 
 from .parser import LogEntry
 
@@ -57,6 +58,7 @@ def parse_datetime(value: str | None) -> datetime | None:
 def match_entry(
     entry: LogEntry,
     *,
+    source_name: str = "",
     status: set[int] | None = None,
     path: re.Pattern[str] | None = None,
     method: str | None = None,
@@ -65,22 +67,27 @@ def match_entry(
     until: datetime | None = None,
     query: re.Pattern[str] | None = None,
     source: re.Pattern[str] | None = None,
+    read_raw: Callable[[LogEntry], str] | None = None,
 ) -> bool:
-    if status is not None:
-        if entry.status is None or entry.status not in status:
-            return False
-    if path is not None and not path.search(entry.path):
-        return False
-    if method is not None and entry.method.upper() != method.upper():
-        return False
-    if host is not None and not _match_host(entry, host):
-        return False
+    # 安価な条件を先に評価する。
     if since is not None and entry.timestamp < since:
         return False
     if until is not None and entry.timestamp > until:
         return False
-    if query is not None and not query.search(entry.raw):
+    if status is not None:
+        if entry.status is None or entry.status not in status:
+            return False
+    if method is not None and entry.method.upper() != method.upper():
         return False
-    if source is not None and not source.search(entry.source):
+    if source is not None and not source.search(source_name):
         return False
+    if path is not None and not path.search(entry.path):
+        return False
+    if host is not None and not _match_host(entry, host):
+        return False
+    if query is not None:
+        if read_raw is None:
+            return False
+        if not query.search(read_raw(entry)):
+            return False
     return True
