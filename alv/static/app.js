@@ -170,23 +170,35 @@ async function loadLogs() {
     addCell(tr, item.path, { className: "path", title: item.path });
     addCell(tr, item.client_host, { title: clientTitle });
     addCell(tr, item.host, { title: item.host });
-    addCell(tr, item.bytes_sent ?? "-");
     addCell(tr, item.source + ":" + item.line_no, {
       className: "source",
       title: item.source,
     });
 
-    tr.addEventListener("click", () => {
-      const xffLine = item.forwarded_for
-        ? "X-Forwarded-For: " + item.forwarded_for + "\n"
+    tr.addEventListener("click", async () => {
+      const res = await fetch(
+        "/api/logs/detail?" +
+          new URLSearchParams({
+            source: item.source,
+            line_no: String(item.line_no),
+            timestamp: item.timestamp,
+          })
+      );
+      const detail = await res.json();
+      if (!res.ok) {
+        alert(detail.error || "詳細の取得に失敗しました。");
+        return;
+      }
+      const xffLine = detail.forwarded_for
+        ? "X-Forwarded-For: " + detail.forwarded_for + "\n"
         : "";
       els.detailBody.textContent =
-        "ファイル: " + item.source + "\n" +
-        "行番号: " + item.line_no + "\n" +
-        "Client: " + item.client_host + "\n" +
-        "Remote: " + item.host + "\n" +
+        "ファイル: " + detail.source + "\n" +
+        "行番号: " + detail.line_no + "\n" +
+        "Client: " + detail.client_host + "\n" +
+        "Remote: " + detail.host + "\n" +
         xffLine + "\n" +
-        item.raw;
+        detail.raw;
       els.detail.showModal();
     });
     els.rows.appendChild(tr);

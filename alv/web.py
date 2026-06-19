@@ -63,11 +63,22 @@ class LogViewerHandler(BaseHTTPRequestHandler):
         entries = self._get_entries()
         return {
             "directory": str(self.log_root) if self.log_root else None,
-            "files": [str(p) for p in self.log_paths],
+            "files": [p.name for p in self.log_paths],
             "total": len(entries),
             "first": entries[0].timestamp.isoformat() if entries else None,
             "last": entries[-1].timestamp.isoformat() if entries else None,
         }
+
+    def _find_entry(
+        self, source: str, line_no: int, timestamp: str | None = None
+    ) -> object | None:
+        for entry in self._get_entries():
+            if entry.source != source or entry.line_no != line_no:
+                continue
+            if timestamp and entry.timestamp.isoformat() != timestamp:
+                continue
+            return entry
+        return None
 
     def _browse_directory(self, raw_path: str) -> dict:
         if raw_path:
@@ -150,28 +161,56 @@ class LogViewerHandler(BaseHTTPRequestHandler):
             grep_re = re.compile(grep, re.IGNORECASE) if grep else None
             source_re = re.compile(source_pat, re.IGNORECASE) if source_pat else None
 
-            filtered = [
-                e
-                for e in entries
-                if match_entry(
-                    e,
-                    status=status,
-                    path=path_re,
-                    host=host_re,
-                    method=method,
-                    since=since,
-                    until=until,
-                    query=grep_re,
-                    source=source_re,
-                )
-            ]
-            page = filtered[offset : offset + limit]
+            match_kwargs = {
+                "status": status,
+                "path": path_re,
+                "host": host_re,
+                "method": method,
+                "since": since,
+                "until": until,
+                "query": grep_re,
+                "source": source_re,
+            }
+
+            total = 0
+            page: list = []
+            for entry in entries:
+                if not match_entry(entry, **match_kwargs):
+                    continue
+                if offset <= total < offset + limit:
+                    page.append(entry)
+                total += 1
+
             return self._send_json(
                 {
-                    "total": len(filtered),
+                    "total": total,
                     "offset": offset,
                     "limit": limit,
-                    "items": [e.to_dict() for e in page],
+                    "items": [e.to_row_dict() for e in page],
+                }
+            )
+
+        if parsed.path == "/api/logs/detail":
+            source = params.get("source", [""])[0]
+            timestamp = params.get("timestamp", [""])[0] or None
+            try:
+                line_no = int(params.get("line_no", ["0"])[0])
+            except ValueError:
+                return self._send_json({"error": "line_no は整数で指定してください"}, 400)
+            if not source:
+                return self._send_json({"error": "source を指定してください"}, 400)
+
+            entry = self._find_entry(source, line_no, timestamp)
+            if entry is None:
+                return self._send_json({"error": "該当行が見つかりません"}, 404)
+            return self._send_json(
+                {
+                    "source": entry.source,
+                    "line_no": entry.line_no,
+                    "client_host": entry.client_host,
+                    "host": entry.host,
+                    "forwarded_for": entry.forwarded_for,
+                    "raw": entry.raw,
                 }
             )
 

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Iterator
@@ -57,9 +57,6 @@ class LogEntry:
     path: str
     protocol: str
     status: int | None
-    bytes_sent: int | None
-    referer: str
-    user_agent: str
 
     @property
     def client_host(self) -> str:
@@ -70,11 +67,19 @@ class LogEntry:
                 return first
         return self.host
 
-    def to_dict(self) -> dict:
-        data = asdict(self)
-        data["timestamp"] = self.timestamp.isoformat()
-        data["client_host"] = self.client_host
-        return data
+    def to_row_dict(self) -> dict:
+        """一覧 API 用の軽量 dict（raw 等の大きなフィールドは含めない）."""
+        return {
+            "timestamp": self.timestamp.isoformat(),
+            "status": self.status,
+            "method": self.method,
+            "path": self.path,
+            "client_host": self.client_host,
+            "host": self.host,
+            "forwarded_for": self.forwarded_for,
+            "source": self.source,
+            "line_no": self.line_no,
+        }
 
 
 def parse_timestamp(value: str) -> datetime:
@@ -129,9 +134,6 @@ def parse_line(raw: str, *, source: str = "", line_no: int = 0) -> LogEntry | No
     forwarded_for, host = split_leading_hosts(groups["leading"])
     request = groups["request"]
     status = groups["status"]
-    nbytes = groups["bytes"]
-    referer = groups["referer"] or "-"
-    user_agent = groups["user_agent"] or "-"
 
     req_match = _REQUEST_RE.match(request)
     if req_match:
@@ -140,7 +142,6 @@ def parse_line(raw: str, *, source: str = "", line_no: int = 0) -> LogEntry | No
         method, path, protocol = request, "-", "-"
 
     status_val = None if status == "-" else int(status)
-    bytes_val = None if nbytes == "-" else int(nbytes)
 
     return LogEntry(
         source=source,
@@ -155,9 +156,6 @@ def parse_line(raw: str, *, source: str = "", line_no: int = 0) -> LogEntry | No
         path=path,
         protocol=protocol,
         status=status_val,
-        bytes_sent=bytes_val,
-        referer=referer if referer != "-" else "",
-        user_agent=user_agent if user_agent != "-" else "",
     )
 
 
@@ -167,7 +165,7 @@ def iter_entries(paths: list[Path]) -> Iterator[LogEntry]:
             for line_no, line in enumerate(fh, start=1):
                 if not line.strip():
                     continue
-                entry = parse_line(line, source=str(path.resolve()), line_no=line_no)
+                entry = parse_line(line, source=path.name, line_no=line_no)
                 if entry:
                     yield entry
 
