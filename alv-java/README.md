@@ -4,7 +4,7 @@ Python 版 (`alv`) と同じ Web UI で Apache アクセスログを閲覧・検
 
 - **依存関係管理は Maven**（`pom.xml`）。Java 8 向けにコンパイラを `1.8` 指定。
 - **Web サーバ機能は自前**（JDK 内蔵の `com.sun.net.httpserver` を利用。Tomcat 等のアプリケーションサーバ不要）。
-- **実行時の外部依存はゼロ**（JSON も自前実装）。そのため Maven が無くても JDK の `javac` だけでビルドできる。
+- **JSON 入出力は Gson**。`maven-shade-plugin` で依存込みの実行可能 JAR を生成する。
 - **SQLite は使用しない**。Python 版と同じく解析結果を全件メモリに保持する。
 
 ## パフォーマンス設計（低リスクな高速化）
@@ -22,27 +22,17 @@ Python 版 (`alv`) と同じ Web UI で Apache アクセスログを閲覧・検
 
 ## 前提
 
-- JDK 8 以上（`javac` を含む JDK。実行のみなら JRE 8 でも可）
-- ビルド方法は次の 2 通り（どちらでも可）
+- JDK 8 以上（`javac` を含む JDK）
+- Maven 3.6 以上
 
-## ビルド方法 A: Maven
+## ビルド
 
 ```powershell
 cd D:\workspace\apache-log-viewer\alv-java
 mvn -q clean package
 ```
 
-依存の無い実行可能 JAR `target/alv-java.jar` が生成されます。
-
-## ビルド方法 B: Maven 無し（JDK のみ）
-
-PowerShell 用の補助スクリプトを同梱しています。
-
-```powershell
-cd D:\workspace\apache-log-viewer\alv-java
-.\build.ps1            # alv-java.jar を生成
-.\build.ps1 -Run       # ビルド後に ..\samples を読み込んで起動
-```
+依存（Gson）を同梱した実行可能 JAR `target/alv-java.jar` が生成されます。
 
 ## 起動
 

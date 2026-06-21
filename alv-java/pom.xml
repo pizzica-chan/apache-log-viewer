@@ -10,7 +10,7 @@
   <packaging>jar</packaging>
 
   <name>Apache Log Viewer (Java 8)</name>
-  <description>Apache アクセスログを Web UI で閲覧・検索する Java 8 実装（自前 HTTP サーバ・外部依存なし）</description>
+  <description>Apache アクセスログを Web UI で閲覧・検索する Java 8 実装（自前 HTTP サーバ + Gson）</description>
 
   <properties>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
@@ -18,11 +18,18 @@
     <!-- Java 8 向けコンパイラ設定 -->
     <maven.compiler.source>1.8</maven.compiler.source>
     <maven.compiler.target>1.8</maven.compiler.target>
+    <gson.version>2.11.0</gson.version>
     <junit.version>5.10.2</junit.version>
   </properties>
 
   <dependencies>
-    <!-- 実行時の外部依存は無し（JDK 標準ライブラリのみ）。テストのみ JUnit を使用。 -->
+    <!-- JSON 入出力 -->
+    <dependency>
+      <groupId>com.google.code.gson</groupId>
+      <artifactId>gson</artifactId>
+      <version>${gson.version}</version>
+    </dependency>
+    <!-- テスト -->
     <dependency>
       <groupId>org.junit.jupiter</groupId>
       <artifactId>junit-jupiter</artifactId>
@@ -44,18 +51,35 @@
         <artifactId>maven-surefire-plugin</artifactId>
         <version>3.2.5</version>
       </plugin>
-      <!-- 実行可能 JAR（Main-Class を設定。外部依存が無いため shade は不要） -->
+      <!-- 依存込みの実行可能 JAR -->
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
-        <artifactId>maven-jar-plugin</artifactId>
-        <version>3.4.1</version>
-        <configuration>
-          <archive>
-            <manifest>
-              <mainClass>com.example.alv.Main</mainClass>
-            </manifest>
-          </archive>
-        </configuration>
+        <artifactId>maven-shade-plugin</artifactId>
+        <version>3.6.0</version>
+        <executions>
+          <execution>
+            <phase>package</phase>
+            <goals><goal>shade</goal></goals>
+            <configuration>
+              <createDependencyReducedPom>false</createDependencyReducedPom>
+              <transformers>
+                <transformer implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer">
+                  <mainClass>com.example.alv.Main</mainClass>
+                </transformer>
+              </transformers>
+              <filters>
+                <filter>
+                  <artifact>*:*</artifact>
+                  <excludes>
+                    <exclude>META-INF/*.SF</exclude>
+                    <exclude>META-INF/*.DSA</exclude>
+                    <exclude>META-INF/*.RSA</exclude>
+                  </excludes>
+                </filter>
+              </filters>
+            </configuration>
+          </execution>
+        </executions>
       </plugin>
     </plugins>
   </build>

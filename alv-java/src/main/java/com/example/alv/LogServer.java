@@ -1,5 +1,10 @@
 package com.example.alv;
 
+import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
+
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpHandler;
 import com.sun.net.httpserver.HttpServer;
@@ -16,7 +21,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
-import java.util.LinkedHashMap;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -29,6 +34,7 @@ import java.util.regex.PatternSyntaxException;
  *
  * <p>アプリケーションサーバ（Tomcat 等）に依存せず単体で Web UI を提供する。
  * Python 版（{@code alv}）と互換の API を実装し、同じフロントエンドをそのまま利用する。
+ * JSON の入出力には Gson を用いる。
  *
  * <ul>
  *   <li>{@code GET /}               — index.html</li>
@@ -46,7 +52,7 @@ public final class LogServer {
     private static final int DEFAULT_LIMIT = 500;
 
     private final LogStore store = new LogStore();
-    private final Map<String, byte[]> staticCache = new LinkedHashMap<>();
+    private final Map<String, byte[]> staticCache = new HashMap<>();
 
     public LogServer(Path logRoot, List<Path> logPaths) {
         store.setSource(logRoot, logPaths);
@@ -116,23 +122,27 @@ public final class LogServer {
 
     // ---- API: meta --------------------------------------------------------
 
-    private Map<String, Object> metaPayload() {
+    private JsonObject metaPayload() {
         List<LogEntry> entries = store.getEntries();
         boolean loading = store.isLoading();
         long total = loading ? store.getLoadProgress() : entries.size();
 
-        Map<String, Object> payload = new LinkedHashMap<>();
+        JsonObject payload = new JsonObject();
         Path root = store.getLogRoot();
-        payload.put("directory", root != null ? PathUtil.normalizePath(root) : null);
-        payload.put("files", new ArrayList<>(store.getSourceNames()));
-        payload.put("loading", loading);
-        payload.put("load_status", store.getLoadStatus());
-        payload.put("load_progress", store.getLoadProgress());
-        payload.put("total", total);
-        payload.put("first", entries.isEmpty() ? null : entries.get(0).timestampIso());
-        payload.put("last", entries.isEmpty() ? null : entries.get(entries.size() - 1).timestampIso());
+        payload.addProperty("directory", root != null ? PathUtil.normalizePath(root) : null);
+        JsonArray files = new JsonArray();
+        for (String name : store.getSourceNames()) {
+            files.add(name);
+        }
+        payload.add("files", files);
+        payload.addProperty("loading", loading);
+        payload.addProperty("load_status", store.getLoadStatus());
+        payload.addProperty("load_progress", store.getLoadProgress());
+        payload.addProperty("total", total);
+        payload.addProperty("first", entries.isEmpty() ? null : entries.get(0).timestampIso());
+        payload.addProperty("last", entries.isEmpty() ? null : entries.get(entries.size() - 1).timestampIso());
         if (store.getLoadError() != null) {
-            payload.put("load_error", store.getLoadError());
+            payload.addProperty("load_error", store.getLoadError());
         }
         return payload;
     }
@@ -171,11 +181,15 @@ public final class LogServer {
         }
         dirs.sort((a, b) -> a.toLowerCase(Locale.ROOT).compareTo(b.toLowerCase(Locale.ROOT)));
 
-        Map<String, Object> payload = new LinkedHashMap<>();
-        payload.put("current", PathUtil.normalizePath(current));
-        payload.put("parent",
+        JsonObject payload = new JsonObject();
+        payload.addProperty("current", PathUtil.normalizePath(current));
+        payload.addProperty("parent",
                 (parent != null && !parent.equals(current)) ? PathUtil.normalizePath(parent) : null);
-        payload.put("directories", dirs);
+        JsonArray arr = new JsonArray();
+        for (String d : dirs) {
+            arr.add(d);
+        }
+        payload.add("directories", arr);
         sendJson(ex, 200, payload);
     }
 
@@ -185,12 +199,9 @@ public final class LogServer {
         String body = readBody(ex);
         String directory = "";
         try {
-            Object parsed = Json.parse(body);
-            if (parsed instanceof Map) {
-                Object dir = ((Map<?, ?>) parsed).get("directory");
-                if (dir != null) {
-                    directory = dir.toString();
-                }
+            JsonObject obj = JsonParser.parseString(body).getAsJsonObject();
+            if (obj.has("directory") && !obj.get("directory").isJsonNull()) {
+                directory = obj.get("directory").getAsString();
             }
         } catch (RuntimeException e) {
             sendErrorJson(ex, 400, "JSON を解釈できません");
@@ -222,13 +233,13 @@ public final class LogServer {
 
     private void handleLogs(HttpExchange ex) throws IOException {
         if (store.isLoading()) {
-            Map<String, Object> payload = new LinkedHashMap<>();
-            payload.put("loading", true);
-            payload.put("load_progress", store.getLoadProgress());
-            payload.put("total", 0L);
-            payload.put("offset", 0L);
-            payload.put("limit", 0L);
-            payload.put("items", new ArrayList<>());
+            JsonObject payload = new JsonObject();
+            payload.addProperty("loading", true);
+            payload.addProperty("load_progress", store.getLoadProgress());
+            payload.addProperty("total", 0);
+            payload.addProperty("offset", 0);
+            payload.addProperty("limit", 0);
+            payload.add("items", new JsonArray());
             sendJson(ex, 200, payload);
             return;
         }
@@ -286,15 +297,15 @@ public final class LogServer {
             total = collect(entries, filter, page, offset, limit, null);
         }
 
-        List<Object> items = new ArrayList<>(page.size());
+        JsonArray items = new JsonArray();
         for (LogEntry e : page) {
             items.add(rowJson(e));
         }
-        Map<String, Object> payload = new LinkedHashMap<>();
-        payload.put("total", total);
-        payload.put("offset", offset);
-        payload.put("limit", limit);
-        payload.put("items", items);
+        JsonObject payload = new JsonObject();
+        payload.addProperty("total", total);
+        payload.addProperty("offset", offset);
+        payload.addProperty("limit", limit);
+        payload.add("items", items);
         sendJson(ex, 200, payload);
     }
 
@@ -314,17 +325,17 @@ public final class LogServer {
         return total;
     }
 
-    private Map<String, Object> rowJson(LogEntry e) {
-        Map<String, Object> o = new LinkedHashMap<>();
-        o.put("timestamp", e.timestampIso());
-        o.put("status", e.status == LogEntry.NO_STATUS ? null : Integer.valueOf(e.status));
-        o.put("method", e.method);
-        o.put("path", e.path);
-        o.put("client_host", e.clientHost);
-        o.put("host", e.host);
-        o.put("forwarded_for", e.forwardedFor);
-        o.put("source", store.sourceName(e));
-        o.put("line_no", (long) e.lineNo);
+    private JsonObject rowJson(LogEntry e) {
+        JsonObject o = new JsonObject();
+        o.addProperty("timestamp", e.timestampIso());
+        o.addProperty("status", e.status == LogEntry.NO_STATUS ? null : Integer.valueOf(e.status));
+        o.addProperty("method", e.method);
+        o.addProperty("path", e.path);
+        o.addProperty("client_host", e.clientHost);
+        o.addProperty("host", e.host);
+        o.addProperty("forwarded_for", e.forwardedFor);
+        o.addProperty("source", store.sourceName(e));
+        o.addProperty("line_no", e.lineNo);
         return o;
     }
 
@@ -360,13 +371,13 @@ public final class LogServer {
             raw = reader.read(entry.fileId, entry.byteOffset);
         }
 
-        Map<String, Object> o = new LinkedHashMap<>();
-        o.put("source", store.sourceName(entry));
-        o.put("line_no", (long) entry.lineNo);
-        o.put("client_host", entry.clientHost);
-        o.put("host", entry.host);
-        o.put("forwarded_for", entry.forwardedFor);
-        o.put("raw", raw);
+        JsonObject o = new JsonObject();
+        o.addProperty("source", store.sourceName(entry));
+        o.addProperty("line_no", entry.lineNo);
+        o.addProperty("client_host", entry.clientHost);
+        o.addProperty("host", entry.host);
+        o.addProperty("forwarded_for", entry.forwardedFor);
+        o.addProperty("raw", raw);
         sendJson(ex, 200, o);
     }
 
@@ -485,8 +496,8 @@ public final class LogServer {
         return bos.toByteArray();
     }
 
-    private void sendJson(HttpExchange ex, int status, Object payload) throws IOException {
-        byte[] body = Json.stringify(payload).getBytes(StandardCharsets.UTF_8);
+    private void sendJson(HttpExchange ex, int status, JsonElement payload) throws IOException {
+        byte[] body = payload.toString().getBytes(StandardCharsets.UTF_8);
         ex.getResponseHeaders().set("Content-Type", "application/json; charset=utf-8");
         ex.sendResponseHeaders(status, body.length);
         try (OutputStream os = ex.getResponseBody()) {
@@ -495,8 +506,8 @@ public final class LogServer {
     }
 
     private void sendErrorJson(HttpExchange ex, int status, String message) throws IOException {
-        Map<String, Object> obj = new LinkedHashMap<>();
-        obj.put("error", message != null ? message : "error");
+        JsonObject obj = new JsonObject();
+        obj.addProperty("error", message != null ? message : "error");
         sendJson(ex, status, obj);
     }
 
