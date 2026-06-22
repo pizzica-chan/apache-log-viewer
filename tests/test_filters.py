@@ -1,10 +1,12 @@
 import re
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
 from alv.filters import match_entry, parse_datetime, parse_status_filter
 from alv.parser import parse_line
+
+JST = timezone(timedelta(hours=9))
 
 
 @pytest.fixture
@@ -40,7 +42,20 @@ class TestParseDatetime:
 
     def test_space_separated(self) -> None:
         dt = parse_datetime("2025-06-20 08:01:12")
-        assert dt == datetime(2025, 6, 20, 8, 1, 12, tzinfo=timezone.utc)
+        assert dt == datetime(2025, 6, 20, 8, 1, 12, tzinfo=JST)
+
+    def test_since_jst_matches_log_in_same_timezone(self, sample_entry) -> None:
+        since = parse_datetime("2025-06-20 08:00:00")
+        assert match_entry(sample_entry, since=since) is True
+
+    def test_since_jst_excludes_earlier_log(self) -> None:
+        entry = parse_line(
+            '203.0.113.50 10.0.0.5 - - [20/Jun/2025:07:55:00 +0900] '
+            '"GET /api/users HTTP/1.1" 200 1024 "-" "Mozilla/5.0"'
+        )
+        assert entry is not None
+        since = parse_datetime("2025-06-20 08:00:00")
+        assert match_entry(entry, since=since) is False
 
     def test_invalid_raises(self) -> None:
         with pytest.raises(ValueError, match="日時形式"):

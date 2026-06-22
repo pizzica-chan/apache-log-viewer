@@ -14,6 +14,8 @@ public final class TimeUtil {
     }
 
     private static final long MILLIS_PER_DAY = 86_400_000L;
+    /** UI の開始/終了日時（タイムゾーン無し）のオフセット: JST (+09:00)。 */
+    private static final int UI_DATETIME_OFFSET_MINUTES = 540;
 
     /**
      * Apache 形式のタイムスタンプ {@code 10/Oct/2000:13:55:36 -0700} を解析する。
@@ -62,11 +64,11 @@ public final class TimeUtil {
     }
 
     /**
-     * UI から渡される日時文字列を epoch millis（UTC 解釈）へ解析する。
+     * UI から渡される日時文字列を epoch millis（UTC）へ解析する。
      *
      * <p>対応形式: {@code yyyy-MM-ddTHH:mm:ss} / {@code yyyy-MM-dd HH:mm:ss} /
-     * {@code yyyy-MM-dd HH:mm} / {@code yyyy-MM-dd}。タイムゾーン指定が無ければ UTC とみなす
-     * （Python 版 {@code parse_datetime} と同じ挙動）。
+     * {@code yyyy-MM-dd HH:mm} / {@code yyyy-MM-dd}。タイムゾーン指定が無ければ
+     * JST (+09:00) として解釈する（Python 版 {@code parse_datetime} と同じ挙動）。
      *
      * @throws IllegalArgumentException 解釈できない場合
      */
@@ -86,7 +88,8 @@ public final class TimeUtil {
             if (v.length() >= 19) {
                 sec = Integer.parseInt(v.substring(17, 19));
             }
-            return toMillis(year, month, day, hour, min, sec, 0);
+            long localMillis = toMillis(year, month, day, hour, min, sec, 0);
+            return localMillis - UI_DATETIME_OFFSET_MINUTES * 60_000L;
         } catch (RuntimeException e) {
             throw new IllegalArgumentException("日時形式を解釈できません: " + value);
         }

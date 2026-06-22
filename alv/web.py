@@ -223,24 +223,35 @@ class LogViewerHandler(BaseHTTPRequestHandler):
                 )
 
             entries = self._get_entries()
-            status = parse_status_filter(params.get("status", [""])[0])
+            try:
+                status = parse_status_filter(params.get("status", [""])[0])
+            except ValueError:
+                return self._send_json({"error": "ステータス指定が不正です"}, 400)
+
             path_pat = params.get("path", [""])[0]
             host_pat = params.get("host", [""])[0]
             method = params.get("method", [""])[0] or None
             grep = params.get("grep", [""])[0]
             source_pat = params.get("source", [""])[0]
-            since = parse_datetime(params.get("since", [""])[0] or None)
-            until = parse_datetime(params.get("until", [""])[0] or None)
+            try:
+                since = parse_datetime(params.get("since", [""])[0] or None)
+                until = parse_datetime(params.get("until", [""])[0] or None)
+            except ValueError as exc:
+                return self._send_json({"error": str(exc)}, 400)
+
             try:
                 limit = min(int(params.get("limit", ["500"])[0]), 5000)
                 offset = max(int(params.get("offset", ["0"])[0]), 0)
             except ValueError:
                 return self._send_json({"error": "limit/offset は整数で指定してください"}, 400)
 
-            path_re = re.compile(path_pat, re.IGNORECASE) if path_pat else None
-            host_re = re.compile(host_pat, re.IGNORECASE) if host_pat else None
-            grep_re = re.compile(grep, re.IGNORECASE) if grep else None
-            source_re = re.compile(source_pat, re.IGNORECASE) if source_pat else None
+            try:
+                path_re = re.compile(path_pat, re.IGNORECASE) if path_pat else None
+                host_re = re.compile(host_pat, re.IGNORECASE) if host_pat else None
+                grep_re = re.compile(grep, re.IGNORECASE) if grep else None
+                source_re = re.compile(source_pat, re.IGNORECASE) if source_pat else None
+            except re.error as exc:
+                return self._send_json({"error": f"正規表現が不正です: {exc}"}, 400)
 
             match_kwargs = {
                 "status": status,

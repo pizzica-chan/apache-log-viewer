@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import re
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from typing import Callable
 
 from .parser import LogEntry
+
+# UI の開始/終了日時（タイムゾーン無し）は JST として解釈する。
+JST = timezone(timedelta(hours=9))
 
 
 def _match_host(entry: LogEntry, pattern: re.Pattern[str]) -> bool:
@@ -34,6 +37,10 @@ def parse_status_filter(value: str) -> set[int] | None:
 
 
 def parse_datetime(value: str | None) -> datetime | None:
+    """UI から渡される日時文字列を解析する。
+
+    タイムゾーン指定が無い場合は JST (+09:00) として解釈する。
+    """
     if not value:
         return None
     for fmt in (
@@ -46,9 +53,7 @@ def parse_datetime(value: str | None) -> datetime | None:
         try:
             dt = datetime.strptime(value, fmt)
             if dt.tzinfo is None:
-                from datetime import timezone
-
-                dt = dt.replace(tzinfo=timezone.utc)
+                dt = dt.replace(tzinfo=JST)
             return dt
         except ValueError:
             continue

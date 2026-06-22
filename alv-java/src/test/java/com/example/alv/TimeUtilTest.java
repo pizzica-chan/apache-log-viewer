@@ -42,6 +42,14 @@ class TimeUtilTest {
     }
 
     @Test
+    void parseUiDatetimeUsesJst() {
+        long ui = TimeUtil.parseUiDatetime("2025-06-20 08:01:12");
+        long[] apache = TimeUtil.parseApacheTimestamp("20/Jun/2025:08:01:12 +0900");
+        assertNotNull(apache);
+        assertEquals(apache[0], ui);
+    }
+
+    @Test
     void parseUiDatetimeVariants() {
         long a = TimeUtil.parseUiDatetime("2025-06-20 08:00:00");
         long b = TimeUtil.parseUiDatetime("2025-06-20T08:00:00");
