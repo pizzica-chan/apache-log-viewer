@@ -4,6 +4,8 @@ Apache HTTP Server のアクセスログ（複数ファイル）を **Web UI** �
 
 指定ディレクトリ配下のログファイルを **再帰的に探索** し、複数ファイルを **時系列順に統合** して表示します。
 
+**Java 8 実装**（`alv-java/`）。Maven でビルドし、JDK 内蔵 HTTP サーバで Web UI を提供します。
+
 ## 機能
 
 - ディレクトリを UI から選択し、配下のログファイルを再帰的に読み込み
@@ -13,35 +15,42 @@ Apache HTTP Server のアクセスログ（複数ファイル）を **Web UI** �
 - 行クリックで生ログとファイル情報を表示
 - ページング対応
 
-## インストール
+## 前提
+
+- JDK 8 以上（`javac` を含む JDK）
+- Maven 3.6 以上
+
+## ビルド
 
 ```powershell
-cd D:\workspace\apache-log-viewer
-pip install -e .
+cd D:\workspace\apache-log-viewer\alv-java
+mvn -q clean package
 ```
 
-依存パッケージは不要（Python 3.10+、標準ライブラリのみ）です。
+依存（Gson）を同梱した実行可能 JAR `target/alv-java.jar` が生成されます。
 
 ## 起動
 
 ```powershell
-python -m alv
+java -jar alv-java\target\alv-java.jar
 ```
 
-ブラウザで http://127.0.0.1:8765 を開きます。
+ブラウザで http://127.0.0.1:8769 を開きます。
 
 起動時にログディレクトリを指定する場合:
 
 ```powershell
-python -m alv --dir C:\logs\apache
-python -m alv --dir samples --port 8765
+java -jar alv-java\target\alv-java.jar --dir C:\logs\apache
+java -jar alv-java\target\alv-java.jar --dir samples --port 8769
 ```
+
+Windows では `start.bat` からも起動できます（JAR が無ければ自動ビルド）。
 
 | オプション | 説明 | デフォルト |
 |-----------|------|-----------|
 | `--dir` | 起動時に読み込むログディレクトリ（省略時は UI から選択） | — |
 | `--host` | 待ち受けアドレス | `127.0.0.1` |
-| `--port` | 待ち受けポート | `8765` |
+| `--port` | 待ち受けポート | `8769` |
 
 ## Web UI の使い方
 
@@ -58,7 +67,7 @@ python -m alv --dir samples --port 8765
 - `access.log*`, `error.log*`
 - `*.log`
 
-`.git` や `__pycache__` などのディレクトリはスキップします。圧縮ファイル（`.gz` 等）は未対応です。
+`.git` や `node_modules` などのディレクトリはスキップします。圧縮ファイル（`.gz` 等）は未対応です。
 
 ### フィルタ
 
@@ -105,7 +114,7 @@ LogFormat `%{X-Forwarded-For}i %h %l %u %t "%r" %>s %b "%{Referer}i" "%{User-Age
 
 ```powershell
 # Web UI を起動してログディレクトリを指定
-python -m alv --dir C:\logs\apache
+java -jar alv-java\target\alv-java.jar --dir C:\logs\apache
 
 # ブラウザで以下のような調査を行う
 # - ステータス: 5xx
@@ -113,6 +122,17 @@ python -m alv --dir C:\logs\apache
 # - パス: /api/
 # - ソースファイル: access_log で特定ホストのログに絞り込み
 ```
+
+## テスト
+
+```powershell
+cd alv-java
+mvn test
+```
+
+## 詳細
+
+パフォーマンス設計や API 仕様の詳細は [alv-java/README.md](alv-java/README.md) を参照してください。
 
 ## ライセンス
 

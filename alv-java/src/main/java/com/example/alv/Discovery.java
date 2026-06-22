@@ -17,7 +17,7 @@ import java.util.Set;
 /**
  * ログファイルの再帰探索。
  *
- * <p>Python 版 {@code alv.discovery} と同じファイル名パターン・スキップディレクトリに対応する。
+ * <p>指定ディレクトリ配下からログファイル名パターンに一致するファイルを再帰探索する。
  */
 public final class Discovery {
 
@@ -35,8 +35,7 @@ public final class Discovery {
 
     /** 走査をスキップするディレクトリ名。 */
     private static final Set<String> SKIP_DIR_NAMES = new HashSet<>(Arrays.asList(
-            ".git", "__pycache__", "node_modules", ".venv", "venv",
-            ".tox", ".mypy_cache", ".pytest_cache"));
+            ".git", "node_modules", "target", ".idea"));
 
     /** ファイル名がログファイルパターンに一致するか（圧縮ファイルは除外）。 */
     public static boolean isLogFile(String name) {
@@ -89,7 +88,7 @@ public final class Discovery {
         return found;
     }
 
-    /** 簡易 glob マッチ（{@code *} と {@code ?} のみ。Python {@code fnmatch} 相当）。 */
+    /** 簡易 glob マッチ（{@code *} と {@code ?} のみ）。 */
     static boolean globMatch(String pattern, String name) {
         return globMatch(pattern, 0, name, 0);
     }

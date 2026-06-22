@@ -33,8 +33,7 @@ import java.util.regex.PatternSyntaxException;
  * 自前 HTTP サーバ（JDK 内蔵 {@link com.sun.net.httpserver.HttpServer} を使用）。
  *
  * <p>アプリケーションサーバ（Tomcat 等）に依存せず単体で Web UI を提供する。
- * Python 版（{@code alv}）と互換の API を実装し、同じフロントエンドをそのまま利用する。
- * JSON の入出力には Gson を用いる。
+ * REST API と静的ファイル（Web UI）を提供する。JSON の入出力には Gson を用いる。
  *
  * <ul>
  *   <li>{@code GET /}               — index.html</li>

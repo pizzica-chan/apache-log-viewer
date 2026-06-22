@@ -8,8 +8,7 @@ import java.util.regex.Pattern;
 /**
  * ログ一覧 API のフィルタ条件と判定ロジック。
  *
- * <p>Python 版 {@code alv.filters} の {@code match_entry} と同じ評価順序・意味を移植する。
- * 安価な条件（日時・ステータス・メソッド）を先に評価し、I/O を伴う grep は最後に評価する。
+ * <p>安価な条件（日時・ステータス・メソッド）を先に評価し、I/O を伴う grep は最後に評価する。
  */
 public final class QueryFilter {
 

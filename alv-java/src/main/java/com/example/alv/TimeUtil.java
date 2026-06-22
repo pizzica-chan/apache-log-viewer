@@ -6,7 +6,7 @@ package com.example.alv;
  * <p>大容量ログでは 1 行ごとに呼ばれるため、{@code ZonedDateTime} 等の重いオブジェクトを
  * 生成せず、civil calendar アルゴリズムで epoch millis（UTC 基準の単調な比較値）へ直接変換する。
  * 整列・範囲フィルタともこの millis を用いるため内部で一貫する。表示用の文字列は、保持した
- * タイムゾーンオフセットを使って Python 版の {@code datetime.isoformat()} と同じ表記へ戻す。
+ * タイムゾーンオフセットを使って ISO 8601 表記へ戻す。
  */
 public final class TimeUtil {
 
@@ -68,7 +68,7 @@ public final class TimeUtil {
      *
      * <p>対応形式: {@code yyyy-MM-ddTHH:mm:ss} / {@code yyyy-MM-dd HH:mm:ss} /
      * {@code yyyy-MM-dd HH:mm} / {@code yyyy-MM-dd}。タイムゾーン指定が無ければ
-     * JST (+09:00) として解釈する（Python 版 {@code parse_datetime} と同じ挙動）。
+     * JST (+09:00) として解釈する。
      *
      * @throws IllegalArgumentException 解釈できない場合
      */
@@ -98,8 +98,7 @@ public final class TimeUtil {
     /**
      * epoch millis（UTC）とオフセットから ISO 8601 文字列へ整形する。
      *
-     * <p>例: {@code 2025-06-20T08:01:12+09:00}（Python の
-     * {@code datetime.isoformat()} 互換。小数秒は付与しない）。
+     * <p>例: {@code 2025-06-20T08:01:12+09:00}（小数秒は付与しない）。
      */
     public static String formatIsoOffset(long utcMillis, int offsetMinutes) {
         long localMillis = utcMillis + offsetMinutes * 60_000L;

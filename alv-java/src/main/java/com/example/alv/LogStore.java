@@ -20,7 +20,7 @@ import java.util.function.LongConsumer;
 /**
  * ログの読み込み・保持を担うストア。
  *
- * <p>Python 版同様、解析済みエントリを全件メモリに保持する（SQLite 等は使わない）。
+ * <p>解析済みエントリを全件メモリに保持する（SQLite 等は使わない）。
  * 読み込みはバックグラウンドのデーモンスレッドで実行し、UI からの問い合わせには
  * 読み込み状態（idle / loading / ready / error）と進捗（行数）を返す。
  *
@@ -29,7 +29,7 @@ import java.util.function.LongConsumer;
  *   <li>複数ファイルを {@link ExecutorService} で<b>並列パース</b>し、ファイルごとの
  *       時系列リストを作る。</li>
  *   <li>その後 {@link PriorityQueue} による <b>k-way マージ</b>で全体を時刻順に統合する
- *       （各ファイル内の順序は保持。Python 版の heapq マージと同等）。</li>
+ *       （各ファイル内の順序は保持）。</li>
  *   <li>I/O は {@link ByteLineReader}（1 MiB バッファ）で行い、各行の byte offset を記録。
  *       生ログ本文はメモリに持たず、詳細表示・grep 時にオフセットから読み出す。</li>
  * </ul>

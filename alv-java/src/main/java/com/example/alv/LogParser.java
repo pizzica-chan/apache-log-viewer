@@ -7,7 +7,7 @@ import java.util.regex.Pattern;
 /**
  * Apache Common / Combined ログのパーサー。
  *
- * <p>Python 版 {@code alv.parser} と同じ正規表現・分解ロジックを移植している。
+ * <p>Apache Common / Combined 形式向けの正規表現で 1 行を分解する。
  *
  * <ul>
  *   <li>先頭の任意 VirtualHost（{@code example.com:80 }）を読み飛ばす</li>
@@ -95,7 +95,7 @@ public final class LogParser {
     /**
      * leading 部分から X-Forwarded-For と remote host (%h) を分離する。
      *
-     * <p>Python の {@code str.rsplit(None, 1)} 相当。最後の空白で分割し、前半を XFF、
+     * <p>最後の空白で分割し、前半を XFF、
      * 後半を remote host とする。XFF が {@code "-"} の場合は空文字にする。
      *
      * @return {@code [forwardedFor, host]}

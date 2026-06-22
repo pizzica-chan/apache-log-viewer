@@ -1,11 +1,11 @@
 # Apache Log Viewer (Java 8)
 
-Python 版 (`alv`) と同じ Web UI で Apache アクセスログを閲覧・検索する **Java 8 実装** です。
+Apache アクセスログを Web UI で閲覧・検索する **Java 8 実装** です。
 
 - **依存関係管理は Maven**（`pom.xml`）。Java 8 向けにコンパイラを `1.8` 指定。
 - **Web サーバ機能は自前**（JDK 内蔵の `com.sun.net.httpserver` を利用。Tomcat 等のアプリケーションサーバ不要）。
 - **JSON 入出力は Gson**。`maven-shade-plugin` で依存込みの実行可能 JAR を生成する。
-- **SQLite は使用しない**。Python 版と同じく解析結果を全件メモリに保持する。
+- **SQLite は使用しない**。解析結果を全件メモリに保持する。
 
 ## パフォーマンス設計（低リスクな高速化）
 
@@ -48,9 +48,9 @@ java -jar alv-java.jar --dir C:\logs\apache --port 8769
 |-----------|------|-----------|
 | `--dir`  | 起動時に読み込むログディレクトリ（省略時は UI から選択） | — |
 | `--host` | 待ち受けアドレス | `127.0.0.1` |
-| `--port` | 待ち受けポート（Python 版 8765 と競合しない値） | `8769` |
+| `--port` | 待ち受けポート | `8769` |
 
-## API（Python 版と互換）
+## HTTP API
 
 - `GET /` — Web UI
 - `GET /api/meta` — 読み込み状態・件数・期間

@@ -4,6 +4,6 @@
     "module": "ESNext",
     "checkJs": false
   },
-  "include": ["alv/static/**/*.js"],
+  "include": ["alv-java/src/main/resources/static/**/*.js"],
   "exclude": ["node_modules"]
 }
