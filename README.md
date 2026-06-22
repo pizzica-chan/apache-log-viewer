@@ -17,8 +17,8 @@ Apache HTTP Server のアクセスログ（複数ファイル）を **Web UI** �
 
 ## 前提
 
-- JDK 8 以上（`javac` を含む JDK）
-- Maven 3.6 以上
+- **Docker で動作確認（おすすめ）:** [Docker Desktop](https://www.docker.com/products/docker-desktop/)（ホストに JDK/Maven 不要）
+- **ローカル開発:** JDK 8 以上（`javac` を含む JDK）、Maven 3.6 以上
 
 ## ビルド
 
@@ -51,6 +51,46 @@ Windows では `start.bat` からも起動できます（JAR が無ければ自�
 | `--dir` | 起動時に読み込むログディレクトリ（省略時は UI から選択） | — |
 | `--host` | 待ち受けアドレス | `127.0.0.1` |
 | `--port` | 待ち受けポート | `8769` |
+
+## Docker で動作確認（ローカル）
+
+JDK/Maven をインストールせず、コンテナだけでサンプルログの閲覧まで試せます。
+
+### ワンクリック起動（おすすめ）
+
+1. [Docker Desktop](https://www.docker.com/products/docker-desktop/) をインストールする。
+2. リポジトリ直下の **`docker-up.bat`** をダブルクリック（または `scripts\one-click-up.cmd`）。
+
+Docker Desktop が止まっていれば **自動起動・待機**（最大約 3 分）→ **ビルド** → **起動** → **ブラウザで http://localhost:8769 を開く** まで一気に実行されます。`samples/` のログは自動読み込みされます。
+
+| 操作 | コマンド |
+|------|----------|
+| 起動 | `docker-up.bat` |
+| 停止 | `docker-down.bat` |
+| ソース変更の反映 | `scripts\one-click-restart.cmd` |
+| ログ追従 | `.\scripts\one-click-up.ps1 -FollowLogs` |
+
+### 手動（docker compose のみ）
+
+**Docker Desktop を先に起動**してから、リポジトリ直下で実行します。
+
+```powershell
+docker compose up --build -d
+docker compose ps
+docker compose logs -f app
+docker compose down
+```
+
+### マウントと環境変数
+
+| 項目 | 説明 |
+|------|------|
+| `./samples` → `/app/logs/samples` | サンプルログ（読み取り専用）。起動時に `--dir` で自動読み込み |
+| `ALV_LOG_DIR` | ホスト側のログディレクトリを差し替え（例: `$env:ALV_LOG_DIR="C:\logs\apache"`） |
+
+**ホストポート:** 既定は **`8769`** です。競合する場合は `docker-compose.yml` の `ports` を `"18769:8769"` のように変更し、ブラウザも合わせてください。
+
+**注意:** ローカル検証専用です。インターネットに公開しないでください。
 
 ## Web UI の使い方
 

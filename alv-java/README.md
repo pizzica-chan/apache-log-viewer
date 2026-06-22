@@ -22,8 +22,8 @@ Apache アクセスログを Web UI で閲覧・検索する **Java 8 実装** �
 
 ## 前提
 
-- JDK 8 以上（`javac` を含む JDK）
-- Maven 3.6 以上
+- **Docker で動作確認:** リポジトリ直下の [README.md](../README.md#docker-で動作確認ローカル) を参照。`docker-up.bat` をダブルクリックするだけ（ホストに JDK/Maven 不要）
+- **ローカル開発:** JDK 8 以上（`javac` を含む JDK）、Maven 3.6 以上
 
 ## ビルド
 
