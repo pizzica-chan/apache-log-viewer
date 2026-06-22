@@ -18,7 +18,8 @@ const els = {
   sinceTime: document.getElementById("since-time"),
   untilDate: document.getElementById("until-date"),
   untilTime: document.getElementById("until-time"),
-  rangeFull: document.getElementById("range-full"),
+  rangeFirst1h: document.getElementById("range-first-1h"),
+  rangeFirst24h: document.getElementById("range-first-24h"),
   rangeLast1h: document.getElementById("range-last-1h"),
   rangeLast24h: document.getElementById("range-last-24h"),
   rangeClear: document.getElementById("range-clear"),
@@ -132,6 +133,32 @@ function clearDatetimeFields() {
   els.sinceTime.value = "";
   els.untilDate.value = "";
   els.untilTime.value = "";
+  clearExactQueryRange();
+}
+
+/** ISO 文字列（API meta）を since/until クエリ形式へ。 */
+function isoToApiDatetime(iso) {
+  return iso.replace("T", " ");
+}
+
+/** JST 基準の epoch ms を API の日時文字列へ（ミリ秒まで）。 */
+function msJstToApiDatetime(ms) {
+  const jst = new Date(ms + 9 * 3600000);
+  const y = jst.getUTCFullYear();
+  const mo = pad2(jst.getUTCMonth() + 1);
+  const d = pad2(jst.getUTCDate());
+  const h = pad2(jst.getUTCHours());
+  const mi = pad2(jst.getUTCMinutes());
+  const sec = pad2(jst.getUTCSeconds());
+  const milli = String(jst.getUTCMilliseconds()).padStart(3, "0");
+  return `${y}-${mo}-${d} ${h}:${mi}:${sec}.${milli}`;
+}
+
+/** クイック選択ボタン用。手入力フィールドより優先する正確な since/until。 */
+let exactQueryRange = null;
+
+function clearExactQueryRange() {
+  exactQueryRange = null;
 }
 
 function getSinceParam() {
@@ -148,7 +175,8 @@ function getUntilParam() {
 
 function updateRangeUi() {
   const ready = Boolean(metaRange.first && metaRange.last);
-  els.rangeFull.disabled = !ready;
+  els.rangeFirst1h.disabled = !ready;
+  els.rangeFirst24h.disabled = !ready;
   els.rangeLast1h.disabled = !ready;
   els.rangeLast24h.disabled = !ready;
   if (ready) {
@@ -170,12 +198,17 @@ function updateRangeUi() {
   }
 }
 
-function applyFullRange() {
+function applyFirstHours(hours) {
   if (!metaRange.first || !metaRange.last) return;
-  setDatetimeFields(
-    msJstToFields(isoToMsJst(metaRange.first)),
-    msJstToFields(isoToMsJst(metaRange.last))
-  );
+  const startMs = isoToMsJst(metaRange.first);
+  const endMs = isoToMsJst(metaRange.last);
+  if (startMs == null || endMs == null) return;
+  const untilMs = Math.min(endMs, startMs + hours * 3600000);
+  exactQueryRange = {
+    since: isoToApiDatetime(metaRange.first),
+    until: msJstToApiDatetime(untilMs),
+  };
+  setDatetimeFields(msJstToFields(startMs), msJstToFields(untilMs));
   offset = 0;
   loadLogs();
 }
@@ -186,6 +219,10 @@ function applyLastHours(hours) {
   const startMs = isoToMsJst(metaRange.first);
   if (endMs == null || startMs == null) return;
   const sinceMs = Math.max(startMs, endMs - hours * 3600000);
+  exactQueryRange = {
+    since: msJstToApiDatetime(sinceMs),
+    until: isoToApiDatetime(metaRange.last),
+  };
   setDatetimeFields(msJstToFields(sinceMs), msJstToFields(endMs));
   offset = 0;
   loadLogs();
@@ -205,8 +242,13 @@ function buildQuery() {
   ]) {
     if (el.value.trim()) params.set(key, el.value.trim());
   }
-  if (els.sinceDate.value) params.set("since", getSinceParam());
-  if (els.untilDate.value) params.set("until", getUntilParam());
+  if (exactQueryRange) {
+    params.set("since", exactQueryRange.since);
+    params.set("until", exactQueryRange.until);
+  } else {
+    if (els.sinceDate.value) params.set("since", getSinceParam());
+    if (els.untilDate.value) params.set("until", getUntilParam());
+  }
   return params;
 }
 
@@ -478,6 +520,7 @@ function resetFilters() {
 }
 
 els.search.addEventListener("click", () => {
+  clearExactQueryRange();
   offset = 0;
   loadLogs();
 });
@@ -485,7 +528,8 @@ els.search.addEventListener("click", () => {
 els.reset.addEventListener("click", resetFilters);
 els.loadDir.addEventListener("click", loadDirectory);
 els.browse.addEventListener("click", openBrowseDialog);
-els.rangeFull.addEventListener("click", applyFullRange);
+els.rangeFirst1h.addEventListener("click", () => applyFirstHours(1));
+els.rangeFirst24h.addEventListener("click", () => applyFirstHours(24));
 els.rangeLast1h.addEventListener("click", () => applyLastHours(1));
 els.rangeLast24h.addEventListener("click", () => applyLastHours(24));
 els.rangeClear.addEventListener("click", () => {
@@ -495,6 +539,7 @@ els.rangeClear.addEventListener("click", () => {
 });
 for (const el of [els.sinceDate, els.sinceTime, els.untilDate, els.untilTime]) {
   el.addEventListener("change", () => {
+    clearExactQueryRange();
     offset = 0;
     loadLogs();
   });
@@ -530,6 +575,14 @@ document.addEventListener("keydown", (e) => {
     if (e.target === els.logDir) {
       loadDirectory();
       return;
+    }
+    if (
+      e.target === els.sinceDate ||
+      e.target === els.sinceTime ||
+      e.target === els.untilDate ||
+      e.target === els.untilTime
+    ) {
+      clearExactQueryRange();
     }
     offset = 0;
     loadLogs();
