@@ -25,6 +25,10 @@
   </section>
 
   <section class="filters">
+    <div class="filters-toolbar">
+      <span class="filters-toolbar-label">検索条件</span>
+      <button type="button" id="regex-samples" class="chip">正規表現サンプル</button>
+    </div>
     <label>
       ステータス
       <input id="status" placeholder="500 / 4xx / 500,502">
@@ -126,9 +130,102 @@
   </dialog>
 
   <dialog id="detail">
-    <form method="dialog">
+    <form method="dialog" class="detail-form">
       <pre id="detail-body"></pre>
-      <button>閉じる</button>
+      <div class="detail-actions">
+        <button type="button" id="detail-search-around">前後5分間のログを検索</button>
+        <button type="submit">閉じる</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="regex-samples-dialog">
+    <form method="dialog" class="regex-samples-form">
+      <h2>正規表現サンプル</h2>
+      <p class="regex-samples-note">
+        パス・クライアント IP・全文検索・ソースファイルの各フィールドは正規表現に対応しています。
+        マッチは大文字小文字を区別しません。ステータス（例: <code>500</code> / <code>4xx</code>）と
+        メソッド（例: <code>GET</code>）は完全一致であり、正規表現ではありません。
+      </p>
+      <table class="regex-samples-table">
+        <thead>
+          <tr>
+            <th>パターン</th>
+            <th>対象</th>
+            <th>説明</th>
+            <th>マッチ例</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>/api/</code></td>
+            <td>パス</td>
+            <td>パスの部分一致</td>
+            <td>/api/users</td>
+          </tr>
+          <tr>
+            <td><code>/api/users/\d+</code></td>
+            <td>パス</td>
+            <td>数値 ID を含む API パス</td>
+            <td>/api/users/12345</td>
+          </tr>
+          <tr>
+            <td><code>192\.168</code></td>
+            <td>クライアント IP</td>
+            <td>プライベート IP の prefix（XFF 含む）</td>
+            <td>192.168.1.10</td>
+          </tr>
+          <tr>
+            <td><code>203\.0\.113\.\d+</code></td>
+            <td>クライアント IP</td>
+            <td>特定レンジの IP</td>
+            <td>203.0.113.50</td>
+          </tr>
+          <tr>
+            <td><code>access_log</code></td>
+            <td>ソースファイル</td>
+            <td>ファイル名の部分一致</td>
+            <td>C:\logs\apache\access_log</td>
+          </tr>
+          <tr>
+            <td><code>error\.log</code></td>
+            <td>ソースファイル</td>
+            <td>ドットをリテラルに</td>
+            <td>error.log.2025-06-20</td>
+          </tr>
+          <tr>
+            <td><code>error|500</code></td>
+            <td>全文検索</td>
+            <td>いずれかに一致（OR）</td>
+            <td>Internal Server Error, HTTP 500</td>
+          </tr>
+          <tr>
+            <td><code>"GET /api/</code></td>
+            <td>全文検索</td>
+            <td>リクエスト行の部分一致</td>
+            <td>"GET /api/users HTTP/1.1"</td>
+          </tr>
+          <tr>
+            <td><code>HTTP/1\.1" 5\d\d</code></td>
+            <td>全文検索</td>
+            <td>5xx ステータスを含む行</td>
+            <td>HTTP/1.1" 502</td>
+          </tr>
+          <tr>
+            <td><code>curl/</code></td>
+            <td>全文検索</td>
+            <td>User-Agent に curl を含む</td>
+            <td>curl/8.0</td>
+          </tr>
+          <tr>
+            <td><code>^203\.0\.113</code></td>
+            <td>全文検索</td>
+            <td>行頭が特定 IP（XFF 先頭）</td>
+            <td>203.0.113.50 10.0.0.5 - - [...]</td>
+          </tr>
+        </tbody>
+      </table>
+      <button type="submit">閉じる</button>
     </form>
   </dialog>
 

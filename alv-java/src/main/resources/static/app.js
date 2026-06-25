@@ -35,6 +35,9 @@ const els = {
   next: document.getElementById("next"),
   detail: document.getElementById("detail"),
   detailBody: document.getElementById("detail-body"),
+  detailSearchAround: document.getElementById("detail-search-around"),
+  regexSamples: document.getElementById("regex-samples"),
+  regexSamplesDialog: document.getElementById("regex-samples-dialog"),
   browseDialog: document.getElementById("browse-dialog"),
   browseCurrent: document.getElementById("browse-current"),
   browseList: document.getElementById("browse-list"),
@@ -157,6 +160,9 @@ function msJstToApiDatetime(ms) {
 /** クイック選択ボタン用。手入力フィールドより優先する正確な since/until。 */
 let exactQueryRange = null;
 
+/** 詳細ダイアログ表示中のログ時刻（ISO）。詳細 API は timestamp を返さないため行クリック時に保持する。 */
+let detailTimestamp = null;
+
 function clearExactQueryRange() {
   exactQueryRange = null;
 }
@@ -226,6 +232,28 @@ function applyLastHours(hours) {
   setDatetimeFields(msJstToFields(sinceMs), msJstToFields(endMs));
   offset = 0;
   loadLogs();
+}
+
+function applyAroundMinutes(isoTimestamp, minutes) {
+  const centerMs = isoToMsJst(isoTimestamp);
+  if (centerMs == null) return false;
+  const delta = minutes * 60 * 1000;
+  let sinceMs = centerMs - delta;
+  let untilMs = centerMs + delta;
+  if (metaRange.first && metaRange.last) {
+    const firstMs = isoToMsJst(metaRange.first);
+    const lastMs = isoToMsJst(metaRange.last);
+    if (firstMs != null) sinceMs = Math.max(firstMs, sinceMs);
+    if (lastMs != null) untilMs = Math.min(lastMs, untilMs);
+  }
+  exactQueryRange = {
+    since: msJstToApiDatetime(sinceMs),
+    until: msJstToApiDatetime(untilMs),
+  };
+  setDatetimeFields(msJstToFields(sinceMs), msJstToFields(untilMs));
+  offset = 0;
+  loadLogs();
+  return true;
 }
 
 function buildQuery() {
@@ -491,6 +519,7 @@ async function loadLogs() {
             "Remote: " + detail.host + "\n" +
             xffLine + "\n" +
             detail.raw;
+          detailTimestamp = item.timestamp;
           els.detail.showModal();
         } finally {
           popLoading();
@@ -557,6 +586,17 @@ els.browseUp.addEventListener("click", async () => {
 els.browseSelect.addEventListener("click", () => {
   els.logDir.value = browsePath;
   els.browseDialog.close();
+});
+
+els.detailSearchAround.addEventListener("click", () => {
+  if (!detailTimestamp) return;
+  if (applyAroundMinutes(detailTimestamp, 5)) {
+    els.detail.close();
+  }
+});
+
+els.regexSamples.addEventListener("click", () => {
+  els.regexSamplesDialog.showModal();
 });
 
 els.prev.addEventListener("click", () => {
