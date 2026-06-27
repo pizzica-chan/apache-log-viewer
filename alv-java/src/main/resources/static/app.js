@@ -1,4 +1,5 @@
-const limit = 200;
+const DEFAULT_PAGE_LIMIT = 200;
+const MAX_PAGE_LIMIT = 5000;
 let offset = 0;
 let lastTotal = 0;
 let browsePath = "";
@@ -29,6 +30,7 @@ const els = {
   rangeHint: document.getElementById("range-hint"),
   grep: document.getElementById("grep"),
   source: document.getElementById("source"),
+  pageLimit: document.getElementById("page-limit"),
   search: document.getElementById("search"),
   reset: document.getElementById("reset"),
   rows: document.getElementById("rows"),
@@ -38,7 +40,8 @@ const els = {
   next: document.getElementById("next"),
   detail: document.getElementById("detail"),
   detailBody: document.getElementById("detail-body"),
-  detailSearchAround: document.getElementById("detail-search-around"),
+  detailSearchAround1: document.getElementById("detail-search-around-1"),
+  detailSearchAround5: document.getElementById("detail-search-around-5"),
   regexSamples: document.getElementById("regex-samples"),
   regexSamplesDialog: document.getElementById("regex-samples-dialog"),
   browseDialog: document.getElementById("browse-dialog"),
@@ -278,9 +281,15 @@ function applyAroundMinutes(isoTimestamp, minutes) {
   return true;
 }
 
+function getLimit() {
+  const n = Number.parseInt(els.pageLimit.value, 10);
+  if (!Number.isFinite(n) || n < 1) return DEFAULT_PAGE_LIMIT;
+  return Math.min(n, MAX_PAGE_LIMIT);
+}
+
 function buildQuery() {
   const params = new URLSearchParams();
-  params.set("limit", String(limit));
+  params.set("limit", String(getLimit()));
   params.set("offset", String(offset));
   for (const [key, el] of [
     ["status", els.status],
@@ -520,6 +529,7 @@ async function loadLogs() {
     setBackgroundLoading(false);
     setLoadingUi(false);
     lastTotal = data.total;
+    const limit = getLimit();
     els.resultCount.textContent = `${data.total.toLocaleString()} 件ヒット`;
     const page = Math.floor(offset / limit) + 1;
     const pages = Math.max(1, Math.ceil(data.total / limit));
@@ -596,6 +606,7 @@ function resetFilters() {
     el.value = "";
   }
   clearDatetimeFields();
+  els.pageLimit.value = String(DEFAULT_PAGE_LIMIT);
   offset = 0;
   loadLogs();
 }
@@ -641,22 +652,28 @@ els.browseSelect.addEventListener("click", () => {
   els.browseDialog.close();
 });
 
-els.detailSearchAround.addEventListener("click", () => {
-  if (!detailTimestamp) return;
-  if (applyAroundMinutes(detailTimestamp, 5)) {
-    els.detail.close();
-  }
-});
+function bindDetailSearchAround(button, minutes) {
+  button.addEventListener("click", () => {
+    if (!detailTimestamp) return;
+    if (applyAroundMinutes(detailTimestamp, minutes)) {
+      els.detail.close();
+    }
+  });
+}
+
+bindDetailSearchAround(els.detailSearchAround1, 1);
+bindDetailSearchAround(els.detailSearchAround5, 5);
 
 els.regexSamples.addEventListener("click", () => {
   els.regexSamplesDialog.showModal();
 });
 
 els.prev.addEventListener("click", () => {
-  offset = Math.max(0, offset - limit);
+  offset = Math.max(0, offset - getLimit());
   loadLogs();
 });
 els.next.addEventListener("click", () => {
+  const limit = getLimit();
   if (offset + limit < lastTotal) {
     offset += limit;
     loadLogs();

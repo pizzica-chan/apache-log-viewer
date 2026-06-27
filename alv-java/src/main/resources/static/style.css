@@ -380,7 +380,8 @@ dialog pre {
   color: var(--text);
 }
 
-#detail-search-around {
+#detail-search-around-1,
+#detail-search-around-5 {
   background: var(--accent);
   color: #fff;
 }
