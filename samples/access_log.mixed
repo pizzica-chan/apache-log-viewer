@@ -1,0 +1,8 @@
+127.0.0.1 - - [20/Jun/2025:07:54:00 +0900] "GET /health HTTP/1.1" 200 15 "-" "kube-probe/1.28"
+# rotated at 2025-06-20 — コメント行（解析対象外）
+this is not an apache log line
+[20/Jun/2025:07:54:30 +0900] "GET /incomplete HTTP/1.1" 200 0
+127.0.0.1 - - [INVALID/TIMESTAMP +0900] "GET /bad-ts HTTP/1.1" 200 0
+127.0.0.1 - - [20/Jun/2025:07:54:45 +0900] "GET /ok-after-skips HTTP/1.1" 200 128 "-" "curl/8.0"
+
+Apache restart notice — not a Common Log Format line

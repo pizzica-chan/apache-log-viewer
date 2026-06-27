@@ -39,14 +39,14 @@ class DiscoveryTest {
 
     /**
      * 試験: リポジトリ同梱の {@code samples/} ディレクトリを探索する。
-     * 担保: サンプルログ 3 件がすべて発見される（回帰テスト用の固定件数）。
+     * 担保: サンプルログ 4 件がすべて発見される（回帰テスト用の固定件数）。
      */
     @Test
     void findLogFilesInSamples() throws IOException {
         Path samples = TestPaths.samplesDir();
         assumeTrue(Files.isDirectory(samples), "samples ディレクトリが見つかりません");
         List<Path> found = Discovery.findLogFiles(samples);
-        assertEquals(3, found.size());
+        assertEquals(4, found.size());
     }
 
     /**

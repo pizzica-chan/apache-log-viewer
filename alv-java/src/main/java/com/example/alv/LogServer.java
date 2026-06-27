@@ -140,6 +140,18 @@ public final class LogServer {
         payload.addProperty("total", total);
         payload.addProperty("first", entries.isEmpty() ? null : entries.get(0).timestampIso());
         payload.addProperty("last", entries.isEmpty() ? null : entries.get(entries.size() - 1).timestampIso());
+        if (!loading && store.getSkippedLineCount() > 0) {
+            payload.addProperty("skipped_lines", store.getSkippedLineCount());
+            JsonArray samples = new JsonArray();
+            for (SkippedLine s : store.getSkippedLineSamples()) {
+                JsonObject o = new JsonObject();
+                o.addProperty("source", store.sourceName(s.fileId));
+                o.addProperty("line_no", s.lineNo);
+                o.addProperty("preview", s.preview);
+                samples.add(o);
+            }
+            payload.add("skipped_samples", samples);
+        }
         if (store.getLoadError() != null) {
             payload.addProperty("load_error", store.getLoadError());
         }

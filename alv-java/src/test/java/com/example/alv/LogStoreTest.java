@@ -32,12 +32,13 @@ class LogStoreTest {
 
     /**
      * 試験: サンプルログ全ファイルを同期読み込みする。
-     * 担保: 有効行 13 件がパースされ、空行・不正行は除外される。
+     * 担保: 有効行 15 件がパースされ、空行・不正行は除外され skippedLines に集計される。
      */
     @Test
     void loadsAllSampleEntries() throws IOException {
-        List<LogEntry> entries = LogStore.loadEntries(sampleLogPaths(), true, null);
-        assertEquals(13, entries.size());
+        LogStore.LoadResult result = LogStore.loadEntries(sampleLogPaths(), true, null);
+        assertEquals(15, result.entries.size());
+        assertEquals(5, result.skippedLines);
     }
 
     /**
@@ -46,7 +47,7 @@ class LogStoreTest {
      */
     @Test
     void mergedEntriesAreSortedByTimestamp() throws IOException {
-        List<LogEntry> entries = LogStore.loadEntries(sampleLogPaths(), true, null);
+        List<LogEntry> entries = LogStore.loadEntries(sampleLogPaths(), true, null).entries;
         for (int i = 1; i < entries.size(); i++) {
             assertTrue(entries.get(i - 1).tsMillis <= entries.get(i).tsMillis,
                     "時刻順にソートされていること");
@@ -69,7 +70,7 @@ class LogStoreTest {
         }
         assumeTrue(xffId >= 0, "access_log.xff が見つかりません");
 
-        List<LogEntry> entries = LogStore.loadEntries(paths, false, null);
+        List<LogEntry> entries = LogStore.loadEntries(paths, false, null).entries;
         LogEntry first = null;
         for (LogEntry e : entries) {
             if (e.fileId == xffId && e.lineNo == 1) {
@@ -95,7 +96,7 @@ class LogStoreTest {
     void loadEntriesEmptyPathsReturnsEmpty() throws IOException {
         long[] progress = { -1 };
         List<LogEntry> entries = LogStore.loadEntries(
-                java.util.Collections.<Path>emptyList(), true, n -> progress[0] = n);
+                java.util.Collections.<Path>emptyList(), true, n -> progress[0] = n).entries;
         assertTrue(entries.isEmpty());
         assertEquals(0, progress[0]);
     }
@@ -107,10 +108,34 @@ class LogStoreTest {
     @Test
     void unsortedLoadPreservesFileOrder() throws IOException {
         List<Path> paths = sampleLogPaths();
-        List<LogEntry> entries = LogStore.loadEntries(paths, false, null);
+        List<LogEntry> entries = LogStore.loadEntries(paths, false, null).entries;
         assertTrue(entries.size() >= 1);
         assertEquals(0, entries.get(0).fileId);
         assertEquals(1, entries.get(0).lineNo);
+    }
+
+    /**
+     * 試験: 解析できない行をカウントし、サンプルを返す。
+     * 担保: 不正行は一覧から除外され、skippedLines に件数が入る。
+     */
+    @Test
+    void countsSkippedUnparseableLines() throws IOException {
+        Path temp = Files.createTempFile("alv-skipped-", ".log");
+        try {
+            Files.write(temp,
+                    ("127.0.0.1 - - [20/Jun/2025:08:01:12 +0900] \"GET /ok HTTP/1.1\" 200 0\n"
+                    + "this is not a log line\n"
+                    + "another bad line\n").getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            LogStore.LoadResult result = LogStore.loadEntries(
+                    java.util.Collections.singletonList(temp), false, null);
+            assertEquals(1, result.entries.size());
+            assertEquals(2, result.skippedLines);
+            assertEquals(2, result.skippedSamples.size());
+            assertEquals(2, result.skippedSamples.get(0).lineNo);
+            assertEquals("this is not a log line", result.skippedSamples.get(0).preview);
+        } finally {
+            Files.deleteIfExists(temp);
+        }
     }
 
     /**
@@ -126,7 +151,8 @@ class LogStoreTest {
         waitUntilReady(store, 10, TimeUnit.SECONDS);
 
         assertEquals("ready", store.getLoadStatus());
-        assertEquals(13, store.getEntries().size());
+        assertEquals(15, store.getEntries().size());
+        assertEquals(5, store.getSkippedLineCount());
 
         LogEntry any = store.getEntries().get(0);
         String source = store.sourceName(any);

@@ -37,6 +37,8 @@ import java.util.function.LongConsumer;
 public final class LogStore {
 
     private static final long PROGRESS_INTERVAL = 50_000L;
+    private static final int MAX_SKIPPED_SAMPLES = 5;
+    private static final int PREVIEW_MAX_LEN = 120;
 
     private volatile Path logRoot;
     private volatile List<Path> logPaths = Collections.emptyList();
@@ -46,6 +48,8 @@ public final class LogStore {
     private volatile String loadStatus = "idle"; // idle / loading / ready / error
     private volatile String loadError;
     private final AtomicLong loadProgress = new AtomicLong();
+    private volatile int skippedLineCount;
+    private volatile List<SkippedLine> skippedLineSamples = Collections.emptyList();
 
     private final Object loadLock = new Object();
 
@@ -75,6 +79,14 @@ public final class LogStore {
         return loadProgress.get();
     }
 
+    public int getSkippedLineCount() {
+        return skippedLineCount;
+    }
+
+    public List<SkippedLine> getSkippedLineSamples() {
+        return skippedLineSamples;
+    }
+
     public boolean isLoading() {
         return "loading".equals(loadStatus);
     }
@@ -85,6 +97,10 @@ public final class LogStore {
 
     public String sourceName(LogEntry entry) {
         return sourceNames.get(entry.fileId);
+    }
+
+    public String sourceName(int fileId) {
+        return sourceNames.get(fileId);
     }
 
     /** 読み込み対象を設定し、状態を idle にリセットする。 */
@@ -100,6 +116,8 @@ public final class LogStore {
         this.loadStatus = "idle";
         this.loadError = null;
         this.loadProgress.set(0);
+        this.skippedLineCount = 0;
+        this.skippedLineSamples = Collections.emptyList();
     }
 
     /** 読み込み済みエントリ（未読み込み時は空リスト）。 */
@@ -131,10 +149,12 @@ public final class LogStore {
 
         Thread worker = new Thread(() -> {
             try {
-                List<LogEntry> result = loadEntries(paths, true, loadProgress::set);
+                LoadResult result = loadEntries(paths, true, loadProgress::set);
                 synchronized (loadLock) {
-                    entries = result;
-                    loadProgress.set(result.size());
+                    entries = result.entries;
+                    skippedLineCount = result.skippedLines;
+                    skippedLineSamples = result.skippedSamples;
+                    loadProgress.set(result.entries.size());
                     loadStatus = "ready";
                 }
             } catch (Throwable t) {
@@ -142,6 +162,8 @@ public final class LogStore {
                     loadStatus = "error";
                     loadError = t.getMessage() != null ? t.getMessage() : t.toString();
                     entries = Collections.emptyList();
+                    skippedLineCount = 0;
+                    skippedLineSamples = Collections.emptyList();
                 }
             }
         }, "alv-loader");
@@ -165,40 +187,67 @@ public final class LogStore {
 
     // ---- 読み込み本体（並列パース + k-way マージ）--------------------------
 
+    /** 読み込み結果（解析済みエントリとスキップ行の集計）。 */
+    public static final class LoadResult {
+        public final List<LogEntry> entries;
+        public final int skippedLines;
+        public final List<SkippedLine> skippedSamples;
+
+        LoadResult(List<LogEntry> entries, int skippedLines, List<SkippedLine> skippedSamples) {
+            this.entries = entries;
+            this.skippedLines = skippedLines;
+            this.skippedSamples = skippedSamples;
+        }
+    }
+
     /**
      * 複数ファイルを並列パースし、{@code sort=true} なら時刻順にマージして返す。
      *
      * @param progress 進捗（読み込み済み行数）コールバック。不要なら {@code null}
      */
-    public static List<LogEntry> loadEntries(List<Path> paths, boolean sort, LongConsumer progress)
+    public static LoadResult loadEntries(List<Path> paths, boolean sort, LongConsumer progress)
             throws IOException {
         if (paths.isEmpty()) {
             if (progress != null) {
                 progress.accept(0);
             }
-            return new ArrayList<>();
+            return new LoadResult(new ArrayList<LogEntry>(), 0, Collections.<SkippedLine>emptyList());
         }
-        List<List<LogEntry>> perFile = parseParallel(paths, progress);
+        ParseAggregate aggregate = parseParallel(paths, progress);
         List<LogEntry> result;
         if (sort) {
-            result = merge(perFile);
+            result = merge(aggregate.perFile);
         } else {
             result = new ArrayList<>();
-            for (List<LogEntry> list : perFile) {
+            for (List<LogEntry> list : aggregate.perFile) {
                 result.addAll(list);
             }
         }
         if (progress != null) {
             progress.accept(result.size());
         }
-        return result;
+        return new LoadResult(result, aggregate.skippedLines, aggregate.skippedSamples);
     }
 
-    private static List<List<LogEntry>> parseParallel(List<Path> paths, LongConsumer progress)
+    private static final class ParseAggregate {
+        final List<List<LogEntry>> perFile;
+        final int skippedLines;
+        final List<SkippedLine> skippedSamples;
+
+        ParseAggregate(List<List<LogEntry>> perFile, int skippedLines, List<SkippedLine> skippedSamples) {
+            this.perFile = perFile;
+            this.skippedLines = skippedLines;
+            this.skippedSamples = skippedSamples;
+        }
+    }
+
+    private static ParseAggregate parseParallel(List<Path> paths, LongConsumer progress)
             throws IOException {
         int n = paths.size();
         final List<List<LogEntry>> perFile = new ArrayList<>(Collections.<List<LogEntry>>nCopies(n, null));
         final AtomicLong counter = new AtomicLong();
+        final AtomicLong skippedCounter = new AtomicLong();
+        final List<SkippedLine> skippedSamples = Collections.synchronizedList(new ArrayList<SkippedLine>());
         int threads = Math.max(1, Math.min(n, Runtime.getRuntime().availableProcessors()));
         ExecutorService pool = Executors.newFixedThreadPool(threads);
         try {
@@ -208,7 +257,8 @@ public final class LogStore {
                 final Path path = paths.get(i);
                 futures.add(pool.submit(() -> {
                     try {
-                        perFile.set(fileId, parseFile(fileId, path, counter, progress));
+                        perFile.set(fileId, parseFile(fileId, path, counter, skippedCounter,
+                                skippedSamples, progress));
                     } catch (IOException e) {
                         throw new UncheckedIOException(e);
                     }
@@ -232,10 +282,12 @@ public final class LogStore {
         } finally {
             pool.shutdownNow();
         }
-        return perFile;
+        return new ParseAggregate(perFile, (int) skippedCounter.get(),
+                new ArrayList<>(skippedSamples));
     }
 
-    private static List<LogEntry> parseFile(int fileId, Path path, AtomicLong counter, LongConsumer progress)
+    private static List<LogEntry> parseFile(int fileId, Path path, AtomicLong counter,
+            AtomicLong skippedCounter, List<SkippedLine> skippedSamples, LongConsumer progress)
             throws IOException {
         List<LogEntry> out = new ArrayList<>();
         try (InputStream in = Files.newInputStream(path);
@@ -254,10 +306,27 @@ public final class LogStore {
                     if (progress != null && c % PROGRESS_INTERVAL == 0) {
                         progress.accept(c);
                     }
+                } else {
+                    skippedCounter.incrementAndGet();
+                    if (skippedSamples.size() < MAX_SKIPPED_SAMPLES) {
+                        skippedSamples.add(new SkippedLine(fileId, lineNo, previewLine(line)));
+                    }
                 }
             }
         }
         return out;
+    }
+
+    private static String previewLine(String line) {
+        int end = line.length();
+        while (end > 0 && (line.charAt(end - 1) == '\n' || line.charAt(end - 1) == '\r')) {
+            end--;
+        }
+        String trimmed = line.substring(0, end);
+        if (trimmed.length() <= PREVIEW_MAX_LEN) {
+            return trimmed;
+        }
+        return trimmed.substring(0, PREVIEW_MAX_LEN - 3) + "...";
     }
 
     /** ファイルごとの時系列リストを時刻順（タイブレーク: fileId, lineNo）にマージする。 */
