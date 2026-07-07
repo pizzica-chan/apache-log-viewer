@@ -93,7 +93,13 @@
   </section>
 
   <section class="toolbar">
-    <span id="result-count"></span>
+    <div class="toolbar-left">
+      <span id="result-count"></span>
+      <label class="highlight-input">
+        マッチ行をハイライト
+        <input id="highlight" placeholder="含む文字列（表示のみ）">
+      </label>
+    </div>
     <div class="pager">
       <button id="prev" disabled>前へ</button>
       <span id="page-info"></span>
@@ -143,6 +149,7 @@
       <div class="detail-actions">
         <button type="button" id="detail-search-around-1">前後1分間のログを検索</button>
         <button type="button" id="detail-search-around-5">前後5分間のログを検索</button>
+        <button type="button" id="detail-filter-ip">このIPアドレスで絞込み</button>
         <button type="submit">閉じる</button>
       </div>
     </form>
@@ -231,6 +238,12 @@
             <td>全文検索</td>
             <td>行頭が特定 IP（XFF 先頭）</td>
             <td>203.0.113.50 10.0.0.5 - - [...]</td>
+          </tr>
+          <tr>
+            <td><code>^(?!.*\/health)</code></td>
+            <td>全文検索 / パス</td>
+            <td>指定文字列を含まない（否定先読み <code>(?!…)</code>）。<code>/health</code> を除く行・パス</td>
+            <td>/api/users（/health は除外）</td>
           </tr>
         </tbody>
       </table>

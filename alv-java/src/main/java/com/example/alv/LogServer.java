@@ -298,19 +298,16 @@ public final class LogServer {
 
         List<LogEntry> entries = store.getEntries();
         List<LogEntry> page = new ArrayList<>();
-        long total;
-        if (filter.needsRaw()) {
-            try (LineReader reader = new LineReader(store.getLogPaths())) {
-                QueryFilter.RawLine raw = e -> reader.read(e.fileId, e.byteOffset);
-                total = collect(entries, filter, page, offset, limit, raw);
-            }
-        } else {
-            total = collect(entries, filter, page, offset, limit, null);
-        }
-
         JsonArray items = new JsonArray();
-        for (LogEntry e : page) {
-            items.add(rowJson(e));
+        long total;
+        try (LineReader reader = new LineReader(store.getLogPaths())) {
+            QueryFilter.RawLine raw = filter.needsRaw()
+                    ? e -> reader.read(e.fileId, e.byteOffset)
+                    : null;
+            total = collect(entries, filter, page, offset, limit, raw);
+            for (LogEntry e : page) {
+                items.add(rowJson(e, reader.read(e.fileId, e.byteOffset)));
+            }
         }
         JsonObject payload = new JsonObject();
         payload.addProperty("total", total);
@@ -336,7 +333,7 @@ public final class LogServer {
         return total;
     }
 
-    private JsonObject rowJson(LogEntry e) {
+    private JsonObject rowJson(LogEntry e, String raw) {
         JsonObject o = new JsonObject();
         o.addProperty("timestamp", e.timestampIso());
         o.addProperty("status", e.status == LogEntry.NO_STATUS ? null : Integer.valueOf(e.status));
@@ -347,6 +344,7 @@ public final class LogServer {
         o.addProperty("forwarded_for", e.forwardedFor);
         o.addProperty("source", store.sourceName(e));
         o.addProperty("line_no", e.lineNo);
+        o.addProperty("raw", raw);
         return o;
     }
 

@@ -35,6 +35,7 @@ const els = {
   reset: document.getElementById("reset"),
   rows: document.getElementById("rows"),
   resultCount: document.getElementById("result-count"),
+  highlight: document.getElementById("highlight"),
   pageInfo: document.getElementById("page-info"),
   prev: document.getElementById("prev"),
   next: document.getElementById("next"),
@@ -42,6 +43,7 @@ const els = {
   detailBody: document.getElementById("detail-body"),
   detailSearchAround1: document.getElementById("detail-search-around-1"),
   detailSearchAround5: document.getElementById("detail-search-around-5"),
+  detailFilterIp: document.getElementById("detail-filter-ip"),
   regexSamples: document.getElementById("regex-samples"),
   regexSamplesDialog: document.getElementById("regex-samples-dialog"),
   browseDialog: document.getElementById("browse-dialog"),
@@ -200,6 +202,9 @@ let exactQueryRange = null;
 /** 詳細ダイアログ表示中のログ時刻（ISO）。詳細 API は timestamp を返さないため行クリック時に保持する。 */
 let detailTimestamp = null;
 
+/** 詳細ダイアログ表示中の Client IP。 */
+let detailClientHost = null;
+
 function clearExactQueryRange() {
   exactQueryRange = null;
 }
@@ -281,6 +286,18 @@ function applyAroundMinutes(isoTimestamp, minutes) {
   return true;
 }
 
+function escapeRegex(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function applyFilterByClientHost(clientHost) {
+  if (!clientHost || clientHost === "-") return false;
+  els.host.value = escapeRegex(clientHost);
+  offset = 0;
+  loadLogs();
+  return true;
+}
+
 function getLimit() {
   const n = Number.parseInt(els.pageLimit.value, 10);
   if (!Number.isFinite(n) || n < 1) return DEFAULT_PAGE_LIMIT;
@@ -312,6 +329,40 @@ function buildQuery() {
 }
 
 let loadPollTimer = null;
+let lastPageItems = [];
+
+function getHighlightNeedle() {
+  const text = els.highlight.value.trim();
+  return text ? text.toLowerCase() : "";
+}
+
+function rowMatchesHighlight(item, needle) {
+  if (!needle) return false;
+  const haystack = item.raw || [
+    item.timestamp,
+    item.status,
+    item.method,
+    item.path,
+    item.client_host,
+    item.host,
+    item.forwarded_for,
+    item.source,
+    item.line_no,
+  ].filter((v) => v != null && v !== "").join(" ");
+  return haystack.toLowerCase().includes(needle);
+}
+
+function applyRowHighlights() {
+  const needle = getHighlightNeedle();
+  const rows = els.rows.querySelectorAll("tr");
+  for (let i = 0; i < rows.length; i += 1) {
+    const item = lastPageItems[i];
+    rows[i].classList.toggle(
+      "row-highlight",
+      Boolean(item && rowMatchesHighlight(item, needle))
+    );
+  }
+}
 
 function setLoadingUi(loading) {
   els.search.disabled = loading;
@@ -516,6 +567,7 @@ async function loadLogs() {
       els.resultCount.textContent = message;
       els.pageInfo.textContent = "-";
       els.rows.innerHTML = "";
+      lastPageItems = [];
       els.prev.disabled = true;
       els.next.disabled = true;
       setBackgroundLoading(true, message);
@@ -538,6 +590,7 @@ async function loadLogs() {
     els.next.disabled = offset + limit >= data.total;
 
     els.rows.innerHTML = "";
+    lastPageItems = data.items;
     for (const item of data.items) {
       const tr = document.createElement("tr");
       const clientTitle = item.forwarded_for
@@ -582,6 +635,9 @@ async function loadLogs() {
             xffLine + "\n" +
             detail.raw;
           detailTimestamp = item.timestamp;
+          detailClientHost = detail.client_host;
+          els.detailFilterIp.disabled =
+            !detailClientHost || detailClientHost === "-";
           els.detail.showModal();
         } finally {
           popLoading();
@@ -589,6 +645,7 @@ async function loadLogs() {
       });
       els.rows.appendChild(tr);
     }
+    applyRowHighlights();
   } finally {
     popLoading();
   }
@@ -664,9 +721,17 @@ function bindDetailSearchAround(button, minutes) {
 bindDetailSearchAround(els.detailSearchAround1, 1);
 bindDetailSearchAround(els.detailSearchAround5, 5);
 
+els.detailFilterIp.addEventListener("click", () => {
+  if (applyFilterByClientHost(detailClientHost)) {
+    els.detail.close();
+  }
+});
+
 els.regexSamples.addEventListener("click", () => {
   els.regexSamplesDialog.showModal();
 });
+
+els.highlight.addEventListener("input", applyRowHighlights);
 
 els.prev.addEventListener("click", () => {
   offset = Math.max(0, offset - getLimit());
@@ -684,6 +749,10 @@ document.addEventListener("keydown", (e) => {
   if (e.key === "Enter" && e.target.tagName === "INPUT") {
     if (e.target === els.logDir) {
       loadDirectory();
+      return;
+    }
+    if (e.target === els.highlight) {
+      applyRowHighlights();
       return;
     }
     if (
