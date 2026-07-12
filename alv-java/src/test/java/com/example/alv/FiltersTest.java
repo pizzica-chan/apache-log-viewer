@@ -73,8 +73,8 @@ class FiltersTest {
     }
 
     /**
-     * 試験: ソース（ファイル名）正規表現フィルタ。
-     * 担保: ファイルパス文字列に対して部分一致（find）で判定される。
+     * 試験: ログファイル正規表現フィルタ。
+     * 担保: 絶対パス文字列に対して部分一致（find）で判定される。
      */
     @Test
     void sourceFilter() throws Exception {

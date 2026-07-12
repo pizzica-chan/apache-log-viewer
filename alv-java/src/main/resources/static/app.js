@@ -557,6 +557,14 @@ function addCell(tr, content, options = {}) {
   return td;
 }
 
+function formatSourceLabel(source) {
+  if (!source) return "-";
+  const parts = source.split(/[/\\]/).filter(Boolean);
+  if (parts.length <= 1) return parts[0] || source;
+  const sep = source.includes("\\") ? "\\" : "/";
+  return parts.slice(-2).join(sep);
+}
+
 async function loadLogs() {
   pushLoading("ログを検索中...");
   try {
@@ -603,9 +611,9 @@ async function loadLogs() {
       addCell(tr, item.path, { className: "path", title: item.path });
       addCell(tr, item.client_host, { title: clientTitle });
       addCell(tr, item.host, { title: item.host });
-      addCell(tr, item.source + ":" + item.line_no, {
+      addCell(tr, formatSourceLabel(item.source) + ":" + item.line_no, {
         className: "source",
-        title: item.source,
+        title: item.source + ":" + item.line_no,
       });
 
       tr.addEventListener("click", async () => {
@@ -628,7 +636,7 @@ async function loadLogs() {
             ? "X-Forwarded-For: " + detail.forwarded_for + "\n"
             : "";
           els.detailBody.textContent =
-            "ファイル: " + detail.source + "\n" +
+            "ログファイル: " + detail.source + "\n" +
             "行番号: " + detail.line_no + "\n" +
             "Client: " + detail.client_host + "\n" +
             "Remote: " + detail.host + "\n" +

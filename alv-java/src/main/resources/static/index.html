@@ -81,7 +81,7 @@
       <input id="grep" placeholder="error">
     </label>
     <label>
-      ソースファイル (正規表現)
+      ログファイル (正規表現)
       <input id="source" placeholder="access_log">
     </label>
     <label>
@@ -122,7 +122,7 @@
             <th>Path</th>
             <th>Client</th>
             <th>Remote</th>
-            <th>Source</th>
+            <th>ログファイル</th>
           </tr>
         </thead>
         <tbody id="rows"></tbody>
@@ -159,7 +159,7 @@
     <form method="dialog" class="regex-samples-form">
       <h2>正規表現サンプル</h2>
       <p class="regex-samples-note">
-        パス・クライアント IP・全文検索・ソースファイルの各フィールドは正規表現に対応しています。
+        パス・クライアント IP・全文検索・ログファイルの各フィールドは正規表現に対応しています。
         マッチは大文字小文字を区別しません。ステータス（例: <code>500</code> / <code>4xx</code>）と
         メソッド（例: <code>GET</code>）は完全一致であり、正規表現ではありません。
       </p>
@@ -199,15 +199,15 @@
           </tr>
           <tr>
             <td><code>access_log</code></td>
-            <td>ソースファイル</td>
-            <td>ファイル名の部分一致</td>
-            <td>C:\logs\apache\access_log</td>
+            <td>ログファイル</td>
+            <td>ログファイルパス</td>
+            <td>logs\access_log</td>
           </tr>
           <tr>
             <td><code>error\.log</code></td>
-            <td>ソースファイル</td>
+            <td>ログファイル</td>
             <td>ドットをリテラルに</td>
-            <td>error.log.2025-06-20</td>
+            <td>logs\error.log.2025-06-20</td>
           </tr>
           <tr>
             <td><code>error|500</code></td>
