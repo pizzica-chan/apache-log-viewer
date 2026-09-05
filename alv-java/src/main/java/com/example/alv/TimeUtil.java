@@ -152,7 +152,13 @@ public final class TimeUtil {
         pad(sb, abs % 60, 2);
     }
 
-    /** 年月日・時分秒が実在する値かどうか（うるう年を考慮した月末日まで判定）。 */
+    /**
+     * 年月日・時分秒が実在する値かどうか（うるう年を考慮した月末日まで判定）。
+     *
+     * <p>秒だけは {@code 60}（うるう秒）も許容する。{@code right/} 系タイムゾーンの
+     * システムが出力し得る実在のログ行であり、これを弾くと調査対象の行が
+     * 一覧から消えてしまうため。{@code toMillis} が翌分へ繰り上げて扱う。
+     */
     static boolean isValidDateTime(int year, int month, int day, int hour, int min, int sec) {
         if (month < 1 || month > 12) {
             return false;
@@ -162,7 +168,7 @@ public final class TimeUtil {
         }
         return hour >= 0 && hour <= 23
                 && min >= 0 && min <= 59
-                && sec >= 0 && sec <= 59;
+                && sec >= 0 && sec <= 60;
     }
 
     /** 指定年月の日数。 */

@@ -3,6 +3,7 @@ package com.example.alv;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assumptions.abort;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 import java.io.IOException;
@@ -75,7 +76,7 @@ class DiscoveryTest {
         try {
             Files.createSymbolicLink(tmp.resolve("access_log.link"), target);
         } catch (IOException | UnsupportedOperationException e) {
-            assumeTrue(false, "シンボリックリンクを作成できない環境です: " + e);
+            abort("シンボリックリンクを作成できない環境です: " + e);
         }
         List<Path> found = Discovery.findLogFiles(tmp);
         assertEquals(1, found.size(), "実体パスが同じファイルは 1 件に集約される: " + found);

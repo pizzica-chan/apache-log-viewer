@@ -162,6 +162,20 @@ class TimeUtilTest {
     }
 
     /**
+     * 試験: うるう秒（{@code :60}）を含む Apache タイムスタンプ。
+     * 担保: 実在するログ行のため解析でき、翌分の {@code 00} 秒として扱われる。
+     *       妥当性検証の厳格化で調査対象の行が一覧から消えないことを保証する。
+     */
+    @Test
+    void parseApacheTimestampAcceptsLeapSecond() {
+        long[] ts = TimeUtil.parseApacheTimestamp("30/Jun/2015:23:59:60 +0000");
+        assertNotNull(ts);
+        assertEquals("2015-07-01T00:00:00+00:00", TimeUtil.formatIsoOffset(ts[0], (int) ts[1]));
+        // 分・時の範囲外は引き続き弾く。
+        assertNull(TimeUtil.parseApacheTimestamp("30/Jun/2015:23:60:59 +0000"));
+    }
+
+    /**
      * 試験: 数値化に失敗する UI 日時文字列のエラーメッセージ。
      * 担保: {@code NumberFormatException}（IllegalArgumentException のサブクラス）の
      *       内部メッセージがそのまま API 応答へ漏れず、利用者向けの文言に統一される。

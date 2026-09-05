@@ -336,6 +336,8 @@ let loadPollTimer = null;
 let lastPageItems = [];
 /** 直近の検索に使った表示件数。change と Enter の二重リクエストを防ぐ。 */
 let appliedLimit = DEFAULT_PAGE_LIMIT;
+/** 検索リクエストの通し番号。古い応答で新しい結果を上書きしないために使う。 */
+let logsRequestSeq = 0;
 
 function getHighlightNeedle() {
   const text = els.highlight.value.trim();
@@ -520,15 +522,23 @@ async function loadDirectory() {
 }
 
 async function openBrowseDialog() {
-  browsePath = els.logDir.value.trim();
-  await refreshBrowseList();
+  await refreshBrowseList(els.logDir.value.trim());
   els.browseDialog.showModal();
 }
 
-async function refreshBrowseList() {
+/**
+ * ディレクトリ一覧を取得して描画する。
+ *
+ * 取得に失敗した場合は現在位置（browsePath / browseParent）を変更しない。
+ * 遷移先を先に代入すると、失敗時に画面表示と現在位置が食い違い、
+ * 「選択」で存在しないパスを入力欄へ書き戻してしまうため。
+ *
+ * @param nextPath 遷移先。省略時は現在位置を読み直す
+ */
+async function refreshBrowseList(nextPath) {
   pushLoading("ディレクトリ一覧を取得中...");
   try {
-    await fetchBrowseList();
+    await fetchBrowseList(nextPath);
   } catch (e) {
     alert("ディレクトリ一覧の取得に失敗しました: " + e);
   } finally {
@@ -537,9 +547,10 @@ async function refreshBrowseList() {
 }
 
 /** 実際の取得と描画（エラー処理は refreshBrowseList 側で行う）。 */
-async function fetchBrowseList() {
+async function fetchBrowseList(nextPath) {
+  const target = nextPath !== undefined ? nextPath : browsePath;
   const params = new URLSearchParams();
-  if (browsePath) params.set("path", browsePath);
+  if (target) params.set("path", target);
   const res = await fetch("/api/browse?" + params);
   const data = await res.json();
   if (!res.ok) {
@@ -558,8 +569,7 @@ async function fetchBrowseList() {
     btn.textContent = dir.split(/[/\\]/).pop() || dir;
     btn.title = dir;
     btn.addEventListener("click", async () => {
-      browsePath = dir;
-      await refreshBrowseList();
+      await refreshBrowseList(dir);
     });
     li.appendChild(btn);
     els.browseList.appendChild(li);
@@ -586,10 +596,13 @@ function formatSourceLabel(source) {
 
 async function loadLogs() {
   appliedLimit = getLimit();
+  const seq = ++logsRequestSeq;
   pushLoading("ログを検索中...");
   try {
     const res = await fetch("/api/logs?" + buildQuery());
     const data = await res.json();
+    // 後から投げた検索が既に走っている場合、この応答は捨てる（順序の逆転を防ぐ）。
+    if (seq !== logsRequestSeq) return;
     if (data.loading) {
       const message = `ログを読み込み中... ${data.load_progress.toLocaleString()} 行`;
       els.resultCount.textContent = message;
@@ -724,8 +737,7 @@ for (const el of [els.sinceDate, els.sinceTime, els.untilDate, els.untilTime]) {
 }
 els.browseUp.addEventListener("click", async () => {
   if (!browseParent) return;
-  browsePath = browseParent;
-  await refreshBrowseList();
+  await refreshBrowseList(browseParent);
 });
 els.browseSelect.addEventListener("click", () => {
   els.logDir.value = browsePath;
