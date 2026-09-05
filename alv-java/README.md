@@ -15,7 +15,7 @@ Apache アクセスログを Web UI で閲覧・検索する **Java 8 実装** �
 | k-way マージ | `PriorityQueue` による時刻順マージで全体を統合（各ファイル内の順序は保持） |
 | I/O | 1 MiB バッファでまとめ読みし、改行走査で行を切り出して **byte offset** を記録 |
 | メモリ | 生ログ行は保持せず、詳細表示・全文検索（grep）時に byte offset から読み出し |
-| 日時 | `ZonedDateTime` 等を使わず civil calendar 計算で epoch millis へ直接変換。整列・範囲フィルタも millis（数値）で実施 |
+| 日時 | `ZonedDateTime` 等を使わず civil calendar 計算で millis へ直接変換。整列は UTC epoch millis、期間フィルタは壁時計 millis（`LogEntry#wallMillis`）で、いずれも数値比較のみ |
 | 省メモリ | ステータスは `int`、メソッド文字列は intern、client と remote が同値なら参照を共有 |
 | クエリ | 安価な条件（日時・ステータス・メソッド）を先に評価し、I/O を伴う grep は最後に評価。grep 指定時のみファイルを開く |
 | 配信 | HTTP はスレッドプールで処理、静的ファイルはメモリキャッシュ |
@@ -57,6 +57,7 @@ java -jar alv-java.jar --dir C:\logs\apache --port 8769
 - `GET /api/browse?path=` — ディレクトリ一覧
 - `POST /api/load` — `{"directory": "..."}` を受け取り読み込み開始
 - `GET /api/logs?status=&path=&method=&host=&grep=&source=&since=&until=&limit=&offset=` — フィルタ付き一覧
+  - `since` / `until` は `yyyy-MM-dd[ HH:mm[:ss]]`（`T` 区切りも可）。**ログに記録された現地時刻（壁時計）** として解釈し、タイムゾーン指定は受け付けない
 - `GET /api/logs/detail?source=&line_no=&timestamp=` — 生ログ行
 
 ## 対応ログ形式

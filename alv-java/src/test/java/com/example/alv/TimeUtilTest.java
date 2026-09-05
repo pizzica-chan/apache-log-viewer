@@ -64,15 +64,49 @@ class TimeUtilTest {
     }
 
     /**
-     * 試験: UI 日時文字列（スペース区切り）を JST として解釈する。
-     * 担保: 同じローカル時刻の Apache タイムスタンプと UTC millis が一致する。
+     * 試験: UI 日時文字列を「壁時計」として解釈する（タイムゾーン非依存）。
+     * 担保: 同じ壁時計表記のログ行なら、記録されたタイムゾーンが何であっても
+     *       {@link LogEntry#wallMillis()} と一致する。画面に表示された時刻を
+     *       そのまま入力して絞り込めることを保証する。
      */
     @Test
-    void parseUiDatetimeUsesJst() {
-        long ui = TimeUtil.parseUiDatetime("2025-06-20 08:01:12");
-        long[] apache = TimeUtil.parseApacheTimestamp("20/Jun/2025:08:01:12 +0900");
-        assertNotNull(apache);
-        assertEquals(apache[0], ui);
+    void parseUiWallClockMillisIsTimezoneIndependent() {
+        long ui = TimeUtil.parseUiWallClockMillis("2025-06-20 08:01:12");
+        for (String tz : new String[] {"+0900", "+0000", "-0700", "+0530"}) {
+            LogEntry e = LogParser.parseLine(
+                    "127.0.0.1 - - [20/Jun/2025:08:01:12 " + tz + "] \"GET / HTTP/1.1\" 200 1");
+            assertNotNull(e, tz);
+            assertEquals(ui, e.wallMillis(), tz);
+        }
+    }
+
+    /**
+     * 試験: 壁時計 millis は UTC の瞬間ではないこと。
+     * 担保: 同一瞬間でも記録タイムゾーンが違えば壁時計は異なり、
+     *       逆に壁時計が同じなら瞬間は異なる（座標系の取り違えを防ぐ）。
+     */
+    @Test
+    void wallMillisDiffersFromInstant() {
+        LogEntry jst = LogParser.parseLine(
+                "127.0.0.1 - - [20/Jun/2025:08:01:12 +0900] \"GET / HTTP/1.1\" 200 1");
+        LogEntry utc = LogParser.parseLine(
+                "127.0.0.1 - - [19/Jun/2025:23:01:12 +0000] \"GET / HTTP/1.1\" 200 1");
+        assertEquals(jst.tsMillis, utc.tsMillis, "同一瞬間である");
+        assertTrue(jst.wallMillis() != utc.wallMillis(), "壁時計は異なる");
+        assertEquals(9 * 3600_000L, jst.wallMillis() - utc.wallMillis());
+    }
+
+    /**
+     * 試験: タイムゾーン指定付きの期間文字列。
+     * 担保: 壁時計として扱う以上意味を持たないため、黙って読み飛ばさず例外にする。
+     */
+    @Test
+    void parseUiWallClockMillisRejectsTimezoneSuffix() {
+        for (String bad : new String[] {
+                "2025-06-20 08:01:12+09:00", "2025-06-20T08:01:12Z", "2025-06-20 08:01:12.123"}) {
+            assertThrows(IllegalArgumentException.class,
+                    () -> TimeUtil.parseUiWallClockMillis(bad), bad);
+        }
     }
 
     /**
@@ -81,10 +115,10 @@ class TimeUtilTest {
      */
     @Test
     void parseUiDatetimeVariants() {
-        long a = TimeUtil.parseUiDatetime("2025-06-20 08:00:00");
-        long b = TimeUtil.parseUiDatetime("2025-06-20T08:00:00");
+        long a = TimeUtil.parseUiWallClockMillis("2025-06-20 08:00:00");
+        long b = TimeUtil.parseUiWallClockMillis("2025-06-20T08:00:00");
         assertEquals(a, b);
-        assertTrue(TimeUtil.parseUiDatetime("2025-06-20") < a);
+        assertTrue(TimeUtil.parseUiWallClockMillis("2025-06-20") < a);
     }
 
     /**
@@ -93,7 +127,7 @@ class TimeUtilTest {
      */
     @Test
     void parseUiDatetimeInvalidThrows() {
-        assertThrows(IllegalArgumentException.class, () -> TimeUtil.parseUiDatetime("not-a-date"));
+        assertThrows(IllegalArgumentException.class, () -> TimeUtil.parseUiWallClockMillis("not-a-date"));
     }
 
     /**
@@ -124,8 +158,8 @@ class TimeUtilTest {
      */
     @Test
     void parseUiDatetimeMinutePrecision() {
-        long full = TimeUtil.parseUiDatetime("2025-06-20 08:30:00");
-        long minute = TimeUtil.parseUiDatetime("2025-06-20 08:30");
+        long full = TimeUtil.parseUiWallClockMillis("2025-06-20 08:30:00");
+        long minute = TimeUtil.parseUiWallClockMillis("2025-06-20 08:30");
         assertEquals(full, minute);
     }
 
@@ -136,15 +170,15 @@ class TimeUtilTest {
      */
     @Test
     void parseUiDatetimeRejectsOutOfRangeValues() {
-        assertThrows(IllegalArgumentException.class, () -> TimeUtil.parseUiDatetime("2025-13-45"));
-        assertThrows(IllegalArgumentException.class, () -> TimeUtil.parseUiDatetime("2025-00-10"));
-        assertThrows(IllegalArgumentException.class, () -> TimeUtil.parseUiDatetime("2025-02-29"));
+        assertThrows(IllegalArgumentException.class, () -> TimeUtil.parseUiWallClockMillis("2025-13-45"));
+        assertThrows(IllegalArgumentException.class, () -> TimeUtil.parseUiWallClockMillis("2025-00-10"));
+        assertThrows(IllegalArgumentException.class, () -> TimeUtil.parseUiWallClockMillis("2025-02-29"));
         assertThrows(IllegalArgumentException.class,
-                () -> TimeUtil.parseUiDatetime("2025-06-20 24:00:00"));
+                () -> TimeUtil.parseUiWallClockMillis("2025-06-20 24:00:00"));
         assertThrows(IllegalArgumentException.class,
-                () -> TimeUtil.parseUiDatetime("2025-06-20 08:60:00"));
+                () -> TimeUtil.parseUiWallClockMillis("2025-06-20 08:60:00"));
         // うるう年の 2/29 は有効。
-        assertTrue(TimeUtil.parseUiDatetime("2024-02-29") > 0);
+        assertTrue(TimeUtil.parseUiWallClockMillis("2024-02-29") > 0);
     }
 
     /**
@@ -184,8 +218,9 @@ class TimeUtilTest {
     void parseUiDatetimeReportsFriendlyMessage() {
         for (String bad : new String[] {"abcd-ef-gh", "2025-06-2X", "2025-06-20 XX:00", "short"}) {
             IllegalArgumentException e = assertThrows(IllegalArgumentException.class,
-                    () -> TimeUtil.parseUiDatetime(bad));
-            assertEquals("日時形式を解釈できません: " + bad, e.getMessage());
+                    () -> TimeUtil.parseUiWallClockMillis(bad));
+            assertEquals("日時形式を解釈できません（yyyy-MM-dd[ HH:mm[:ss]]、"
+                    + "タイムゾーン指定不可）: " + bad, e.getMessage());
         }
     }
 
@@ -195,8 +230,8 @@ class TimeUtilTest {
      */
     @Test
     void parseUiDatetimeEndOfDay() {
-        long endOfDay = TimeUtil.parseUiDatetime("2025-06-20 23:59:59");
-        long startOfNextDay = TimeUtil.parseUiDatetime("2025-06-21");
+        long endOfDay = TimeUtil.parseUiWallClockMillis("2025-06-20 23:59:59");
+        long startOfNextDay = TimeUtil.parseUiWallClockMillis("2025-06-21");
         assertEquals(1000L, startOfNextDay - endOfDay);
     }
 }

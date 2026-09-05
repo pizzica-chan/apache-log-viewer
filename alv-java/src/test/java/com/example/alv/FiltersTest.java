@@ -109,15 +109,39 @@ class FiltersTest {
     void matchesByTimeRange() throws Exception {
         LogEntry e = sample();
         QueryFilter f = new QueryFilter();
-        f.sinceMillis = e.tsMillis - 1;
-        f.untilMillis = e.tsMillis + 1;
+        f.sinceWallMillis = e.wallMillis() - 1;
+        f.untilWallMillis = e.wallMillis() + 1;
         assertTrue(f.matches(e, "access_log", null));
 
-        f.sinceMillis = e.tsMillis + 1;
+        f.sinceWallMillis = e.wallMillis() + 1;
         assertFalse(f.matches(e, "access_log", null));
 
-        f.sinceMillis = null;
-        f.untilMillis = e.tsMillis - 1;
+        f.sinceWallMillis = null;
+        f.untilWallMillis = e.wallMillis() - 1;
+        assertFalse(f.matches(e, "access_log", null));
+    }
+
+    /**
+     * 試験: JST 以外のタイムゾーンで記録されたログ行の期間フィルタ。
+     * 担保: UI に表示されている現地時刻をそのまま入力すればヒットする。
+     *       サーバ側で特定タイムゾーンを仮定していた頃は 16 時間ずれて 0 件になっていた。
+     */
+    @Test
+    void matchesByTimeRangeForNonJstLog() throws Exception {
+        LogEntry e = LogParser.parseLine(
+                "127.0.0.1 - - [10/Oct/2000:13:55:36 -0700] \"GET /x HTTP/1.0\" 200 1",
+                0, 1, 0);
+        assertEquals("2000-10-10T13:55:36-07:00", e.timestampIso());
+
+        QueryFilter f = new QueryFilter();
+        // 表示されている 13:55:36 の前後 1 分。
+        f.sinceWallMillis = TimeUtil.parseUiWallClockMillis("2000-10-10 13:54:36");
+        f.untilWallMillis = TimeUtil.parseUiWallClockMillis("2000-10-10 13:56:36");
+        assertTrue(f.matches(e, "access_log", null));
+
+        // 範囲を外せば当たらない。
+        f.sinceWallMillis = TimeUtil.parseUiWallClockMillis("2000-10-10 14:00:00");
+        f.untilWallMillis = TimeUtil.parseUiWallClockMillis("2000-10-10 15:00:00");
         assertFalse(f.matches(e, "access_log", null));
     }
 

@@ -5,8 +5,12 @@ package com.example.alv;
  *
  * <p>大容量ログでは 1 行ごとに呼ばれるため、{@code ZonedDateTime} 等の重いオブジェクトを
  * 生成せず、civil calendar アルゴリズムで epoch millis（UTC 基準の単調な比較値）へ直接変換する。
- * 整列・範囲フィルタともこの millis を用いるため内部で一貫する。表示用の文字列は、保持した
- * タイムゾーンオフセットを使って ISO 8601 表記へ戻す。
+ * 整列にはこの millis を用い、表示用の文字列は保持したタイムゾーンオフセットを使って
+ * ISO 8601 表記へ戻す。
+ *
+ * <p>一方、UI から渡される期間指定はタイムゾーンを持たない「壁時計」として扱う
+ * （{@link #parseUiWallClockMillis}）。画面の時刻列がログ行ごとの現地時刻で表示される以上、
+ * 同じ座標系で絞り込めないと「表示されている時刻を入力しても当たらない」ことになるため。
  */
 public final class TimeUtil {
 
@@ -14,8 +18,6 @@ public final class TimeUtil {
     }
 
     private static final long MILLIS_PER_DAY = 86_400_000L;
-    /** UI の開始/終了日時（タイムゾーン無し）のオフセット: JST (+09:00)。 */
-    private static final int UI_DATETIME_OFFSET_MINUTES = 540;
 
     /**
      * Apache 形式のタイムスタンプ {@code 10/Oct/2000:13:55:36 -0700} を解析する。
@@ -72,16 +74,26 @@ public final class TimeUtil {
     }
 
     /**
-     * UI から渡される日時文字列を epoch millis（UTC）へ解析する。
+     * UI から渡される期間指定を「壁時計 millis」へ解析する。
      *
-     * <p>対応形式: {@code yyyy-MM-ddTHH:mm:ss} / {@code yyyy-MM-dd HH:mm:ss} /
-     * {@code yyyy-MM-dd HH:mm} / {@code yyyy-MM-dd}。タイムゾーン指定が無ければ
-     * JST (+09:00) として解釈する。
+     * <p>対応形式: {@code yyyy-MM-dd} / {@code yyyy-MM-dd HH:mm} /
+     * {@code yyyy-MM-dd HH:mm:ss}（{@code T} 区切りも可）。
+     *
+     * <p>戻り値はタイムゾーンを持たない壁時計を millis で表した<b>比較用の値</b>であり、
+     * UTC の瞬間ではない。{@link LogEntry#wallMillis()} と突き合わせることで、
+     * 画面に表示されている時刻をそのまま入力して絞り込める。
+     *
+     * <p>タイムゾーン指定（{@code +09:00} 等）は受け付けない。壁時計として扱う以上
+     * 意味を持たず、黙って読み飛ばすと「指定したのに効かない」状態になるため。
      *
      * @throws IllegalArgumentException 解釈できない場合
      */
-    public static long parseUiDatetime(String value) {
+    public static long parseUiWallClockMillis(String value) {
         String v = value.trim().replace('T', ' ');
+        // 末尾のタイムゾーン指定や余分な文字を読み飛ばさないよう、長さで形式を限定する。
+        if (v.length() != 10 && v.length() != 16 && v.length() != 19) {
+            throw invalidDatetime(value);
+        }
         int year;
         int month;
         int day;
@@ -99,17 +111,21 @@ public final class TimeUtil {
                 hour = Integer.parseInt(v.substring(11, 13));
                 min = Integer.parseInt(v.substring(14, 16));
             }
-            if (v.length() >= 19) {
+            if (v.length() == 19) {
                 sec = Integer.parseInt(v.substring(17, 19));
             }
         } catch (RuntimeException e) {
-            throw new IllegalArgumentException("日時形式を解釈できません: " + value);
+            throw invalidDatetime(value);
         }
         if (!isValidDateTime(year, month, day, hour, min, sec)) {
-            throw new IllegalArgumentException("日時形式を解釈できません: " + value);
+            throw invalidDatetime(value);
         }
-        long localMillis = toMillis(year, month, day, hour, min, sec, 0);
-        return localMillis - UI_DATETIME_OFFSET_MINUTES * 60_000L;
+        return toMillis(year, month, day, hour, min, sec, 0);
+    }
+
+    private static IllegalArgumentException invalidDatetime(String value) {
+        return new IllegalArgumentException(
+                "日時形式を解釈できません（yyyy-MM-dd[ HH:mm[:ss]]、タイムゾーン指定不可）: " + value);
     }
 
     /**

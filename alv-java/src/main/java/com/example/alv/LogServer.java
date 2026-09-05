@@ -279,8 +279,10 @@ public final class LogServer {
         try {
             String since = p.get("since");
             String until = p.get("until");
-            filter.sinceMillis = (since != null && !since.isEmpty()) ? TimeUtil.parseUiDatetime(since) : null;
-            filter.untilMillis = (until != null && !until.isEmpty()) ? TimeUtil.parseUiDatetime(until) : null;
+            filter.sinceWallMillis =
+                    (since != null && !since.isEmpty()) ? TimeUtil.parseUiWallClockMillis(since) : null;
+            filter.untilWallMillis =
+                    (until != null && !until.isEmpty()) ? TimeUtil.parseUiWallClockMillis(until) : null;
         } catch (IllegalArgumentException e) {
             sendErrorJson(ex, 400, e.getMessage());
             return;

@@ -21,8 +21,10 @@ public final class QueryFilter {
     public Pattern hostRe;
     public Pattern sourceRe;
     public Pattern grepRe;
-    public Long sinceMillis;
-    public Long untilMillis;
+    /** 期間の下限（壁時計 millis）。{@code null} は下限なし。 */
+    public Long sinceWallMillis;
+    /** 期間の上限（壁時計 millis、境界を含む）。{@code null} は上限なし。 */
+    public Long untilWallMillis;
 
     /** grep が指定され、生ログ行の読み出しが必要かどうか。 */
     public boolean needsRaw() {
@@ -40,11 +42,15 @@ public final class QueryFilter {
      * @param raw grep 用の生ログ読み出し（grep 指定が無ければ {@code null} 可）
      */
     public boolean matches(LogEntry e, String sourceName, RawLine raw) throws IOException {
-        if (sinceMillis != null && e.tsMillis < sinceMillis) {
-            return false;
-        }
-        if (untilMillis != null && e.tsMillis > untilMillis) {
-            return false;
+        if (sinceWallMillis != null || untilWallMillis != null) {
+            // 画面表示と同じ「ログ行の現地時刻」で比較する。
+            long wall = e.wallMillis();
+            if (sinceWallMillis != null && wall < sinceWallMillis) {
+                return false;
+            }
+            if (untilWallMillis != null && wall > untilWallMillis) {
+                return false;
+            }
         }
         if (status != null) {
             if (e.status == LogEntry.NO_STATUS || !status.contains(e.status)) {

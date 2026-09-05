@@ -110,22 +110,29 @@ function parseIsoParts(iso) {
   };
 }
 
-function isoToMsJst(iso) {
+/**
+ * ログの表示時刻（ISO）を「壁時計 ms」へ。
+ *
+ * タイムゾーンオフセットは意図的に無視する。画面の時刻列はログ行ごとの現地時刻で
+ * 表示されるため、期間指定も同じ座標系で扱わないと表示と検索が食い違うため。
+ */
+function isoToWallMs(iso) {
   const p = parseIsoParts(iso);
   if (!p) return null;
-  return Date.UTC(p.y, p.mo - 1, p.d, p.h, p.mi, p.s) - 9 * 3600000;
+  return Date.UTC(p.y, p.mo - 1, p.d, p.h, p.mi, p.s);
 }
 
-function msJstToFields(ms) {
-  const jst = new Date(ms + 9 * 3600000);
+/** 壁時計 ms を日付・時刻の入力欄の値へ。 */
+function wallMsToFields(ms) {
+  const t = new Date(ms);
   return {
     date:
-      jst.getUTCFullYear() +
+      t.getUTCFullYear() +
       "-" +
-      pad2(jst.getUTCMonth() + 1) +
+      pad2(t.getUTCMonth() + 1) +
       "-" +
-      pad2(jst.getUTCDate()),
-    time: pad2(jst.getUTCHours()) + ":" + pad2(jst.getUTCMinutes()),
+      pad2(t.getUTCDate()),
+    time: pad2(t.getUTCHours()) + ":" + pad2(t.getUTCMinutes()),
   };
 }
 
@@ -162,12 +169,12 @@ function widenDateInputBounds(startDate, endDate) {
 }
 
 function setExactQueryRange(sinceMs, untilMs) {
-  const start = msJstToFields(sinceMs);
-  const end = msJstToFields(untilMs);
+  const start = wallMsToFields(sinceMs);
+  const end = wallMsToFields(untilMs);
   widenDateInputBounds(start.date, end.date);
   exactQueryRange = {
-    since: msJstToApiDatetime(sinceMs),
-    until: msJstToApiDatetime(untilMs),
+    since: wallMsToApiDatetime(sinceMs),
+    until: wallMsToApiDatetime(untilMs),
   };
   setDatetimeFields(start, end);
 }
@@ -180,22 +187,16 @@ function clearDatetimeFields() {
   clearExactQueryRange();
 }
 
-/** ISO 文字列（API meta）を since/until クエリ形式へ。 */
-function isoToApiDatetime(iso) {
-  return iso.replace("T", " ");
-}
-
-/** JST 基準の epoch ms を API の日時文字列へ（ミリ秒まで）。 */
-function msJstToApiDatetime(ms) {
-  const jst = new Date(ms + 9 * 3600000);
-  const y = jst.getUTCFullYear();
-  const mo = pad2(jst.getUTCMonth() + 1);
-  const d = pad2(jst.getUTCDate());
-  const h = pad2(jst.getUTCHours());
-  const mi = pad2(jst.getUTCMinutes());
-  const sec = pad2(jst.getUTCSeconds());
-  const milli = String(jst.getUTCMilliseconds()).padStart(3, "0");
-  return `${y}-${mo}-${d} ${h}:${mi}:${sec}.${milli}`;
+/** 壁時計 ms を API の since/until 形式（yyyy-MM-dd HH:mm:ss）へ。 */
+function wallMsToApiDatetime(ms) {
+  const t = new Date(ms);
+  const y = t.getUTCFullYear();
+  const mo = pad2(t.getUTCMonth() + 1);
+  const d = pad2(t.getUTCDate());
+  const h = pad2(t.getUTCHours());
+  const mi = pad2(t.getUTCMinutes());
+  const sec = pad2(t.getUTCSeconds());
+  return `${y}-${mo}-${d} ${h}:${mi}:${sec}`;
 }
 
 /** クイック選択ボタン用。手入力フィールドより優先する正確な since/until。 */
@@ -232,8 +233,8 @@ function updateRangeUi() {
   els.rangeLast1h.disabled = !ready;
   els.rangeLast24h.disabled = !ready;
   if (ready) {
-    els.sinceDate.min = msJstToFields(isoToMsJst(metaRange.first)).date;
-    els.sinceDate.max = msJstToFields(isoToMsJst(metaRange.last)).date;
+    els.sinceDate.min = wallMsToFields(isoToWallMs(metaRange.first)).date;
+    els.sinceDate.max = wallMsToFields(isoToWallMs(metaRange.last)).date;
     els.untilDate.min = els.sinceDate.min;
     els.untilDate.max = els.sinceDate.max;
     els.rangeHint.textContent =
@@ -252,36 +253,36 @@ function updateRangeUi() {
 
 function applyFirstHours(hours) {
   if (!metaRange.first || !metaRange.last) return;
-  const startMs = isoToMsJst(metaRange.first);
-  const endMs = isoToMsJst(metaRange.last);
+  const startMs = isoToWallMs(metaRange.first);
+  const endMs = isoToWallMs(metaRange.last);
   if (startMs == null || endMs == null) return;
   const untilMs = Math.min(endMs, startMs + hours * 3600000);
   exactQueryRange = {
-    since: isoToApiDatetime(metaRange.first),
-    until: msJstToApiDatetime(untilMs),
+    since: wallMsToApiDatetime(startMs),
+    until: wallMsToApiDatetime(untilMs),
   };
-  setDatetimeFields(msJstToFields(startMs), msJstToFields(untilMs));
+  setDatetimeFields(wallMsToFields(startMs), wallMsToFields(untilMs));
   offset = 0;
   loadLogs();
 }
 
 function applyLastHours(hours) {
   if (!metaRange.first || !metaRange.last) return;
-  const endMs = isoToMsJst(metaRange.last);
-  const startMs = isoToMsJst(metaRange.first);
+  const endMs = isoToWallMs(metaRange.last);
+  const startMs = isoToWallMs(metaRange.first);
   if (endMs == null || startMs == null) return;
   const sinceMs = Math.max(startMs, endMs - hours * 3600000);
   exactQueryRange = {
-    since: msJstToApiDatetime(sinceMs),
-    until: isoToApiDatetime(metaRange.last),
+    since: wallMsToApiDatetime(sinceMs),
+    until: wallMsToApiDatetime(endMs),
   };
-  setDatetimeFields(msJstToFields(sinceMs), msJstToFields(endMs));
+  setDatetimeFields(wallMsToFields(sinceMs), wallMsToFields(endMs));
   offset = 0;
   loadLogs();
 }
 
 function applyAroundMinutes(isoTimestamp, minutes) {
-  const centerMs = isoToMsJst(isoTimestamp);
+  const centerMs = isoToWallMs(isoTimestamp);
   if (centerMs == null) return false;
   const delta = minutes * 60 * 1000;
   setExactQueryRange(centerMs - delta, centerMs + delta);

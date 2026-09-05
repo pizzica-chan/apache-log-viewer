@@ -45,4 +45,15 @@ public final class LogEntry {
     public String timestampIso() {
         return TimeUtil.formatIsoOffset(tsMillis, tzOffsetMin);
     }
+
+    /**
+     * ログに記録された現地時刻（壁時計）を millis で表した<b>比較用の値</b>。
+     *
+     * <p>UTC の瞬間ではない。{@link #timestampIso()} が表示する時刻と同じ座標系であり、
+     * 期間フィルタはこの値と UI 入力（{@link TimeUtil#parseUiWallClockMillis}）を比較する。
+     * 整列には引き続き {@link #tsMillis}（真の瞬間）を用いる。
+     */
+    public long wallMillis() {
+        return tsMillis + tzOffsetMin * 60_000L;
+    }
 }
