@@ -58,7 +58,7 @@ public final class TimeUtil {
             int sign = tz.charAt(0) == '-' ? -1 : 1;
             int offHour = Integer.parseInt(tz.substring(1, 3));
             int offMin = Integer.parseInt(tz.substring(3, 5));
-            if (offHour > 23 || offMin > 59) {
+            if (offHour < 0 || offHour > 23 || offMin < 0 || offMin > 59) {
                 return null;
             }
             int offsetMinutes = sign * (offHour * 60 + offMin);
@@ -82,13 +82,19 @@ public final class TimeUtil {
      */
     public static long parseUiDatetime(String value) {
         String v = value.trim().replace('T', ' ');
+        int year;
+        int month;
+        int day;
+        int hour = 0;
+        int min = 0;
+        int sec = 0;
+        // 桁位置の切り出しと数値化のみを try で囲む。妥当性判定を中に入れると
+        // NumberFormatException（IllegalArgumentException のサブクラス）と
+        // 区別できなくなり、内部メッセージがそのまま API 応答に出てしまう。
         try {
-            int year = Integer.parseInt(v.substring(0, 4));
-            int month = Integer.parseInt(v.substring(5, 7));
-            int day = Integer.parseInt(v.substring(8, 10));
-            int hour = 0;
-            int min = 0;
-            int sec = 0;
+            year = Integer.parseInt(v.substring(0, 4));
+            month = Integer.parseInt(v.substring(5, 7));
+            day = Integer.parseInt(v.substring(8, 10));
             if (v.length() >= 16) {
                 hour = Integer.parseInt(v.substring(11, 13));
                 min = Integer.parseInt(v.substring(14, 16));
@@ -96,16 +102,14 @@ public final class TimeUtil {
             if (v.length() >= 19) {
                 sec = Integer.parseInt(v.substring(17, 19));
             }
-            if (!isValidDateTime(year, month, day, hour, min, sec)) {
-                throw new IllegalArgumentException("日時形式を解釈できません: " + value);
-            }
-            long localMillis = toMillis(year, month, day, hour, min, sec, 0);
-            return localMillis - UI_DATETIME_OFFSET_MINUTES * 60_000L;
-        } catch (IllegalArgumentException e) {
-            throw e;
         } catch (RuntimeException e) {
             throw new IllegalArgumentException("日時形式を解釈できません: " + value);
         }
+        if (!isValidDateTime(year, month, day, hour, min, sec)) {
+            throw new IllegalArgumentException("日時形式を解釈できません: " + value);
+        }
+        long localMillis = toMillis(year, month, day, hour, min, sec, 0);
+        return localMillis - UI_DATETIME_OFFSET_MINUTES * 60_000L;
     }
 
     /**

@@ -330,7 +330,7 @@ public final class LogServer {
             if (total >= offset && total < end) {
                 page.add(e);
                 // grep 指定時は判定で読んだ生ログをそのまま使い、同じ行の再読を避ける。
-                pageRaw.add(raw != null ? raw.last() : null);
+                pageRaw.add(raw != null ? raw.lastFor(e) : null);
             }
             total++;
         }
@@ -341,10 +341,13 @@ public final class LogServer {
      * grep 判定用の生ログリーダー。直近に読んだ行を保持し、そのままレスポンスに再利用する。
      *
      * <p>{@link QueryFilter#matches} は grep を最後に評価するため、判定が {@code true} の
-     * エントリについては必ず {@link #read} が呼ばれており、{@link #last()} は当該行を指す。
+     * エントリについては {@link #read} が呼ばれている。ただし評価順に依存して誤った行を
+     * 返さないよう、{@link #lastFor} は対象エントリが一致する場合のみ値を返す
+     * （一致しなければ {@code null} を返し、呼び出し側が読み直す）。
      */
     private static final class LastRawLine implements QueryFilter.RawLine {
         private final LineReader reader;
+        private LogEntry lastEntry;
         private String last;
 
         LastRawLine(LineReader reader) {
@@ -354,11 +357,13 @@ public final class LogServer {
         @Override
         public String read(LogEntry entry) throws IOException {
             last = reader.read(entry.fileId, entry.byteOffset);
+            lastEntry = entry;
             return last;
         }
 
-        String last() {
-            return last;
+        /** 直近に読んだ行。{@code entry} が直近の対象と異なる場合は {@code null}。 */
+        String lastFor(LogEntry entry) {
+            return entry == lastEntry ? last : null;
         }
     }
 

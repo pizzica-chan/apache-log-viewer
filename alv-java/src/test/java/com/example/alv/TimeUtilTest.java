@@ -162,6 +162,20 @@ class TimeUtilTest {
     }
 
     /**
+     * 試験: 数値化に失敗する UI 日時文字列のエラーメッセージ。
+     * 担保: {@code NumberFormatException}（IllegalArgumentException のサブクラス）の
+     *       内部メッセージがそのまま API 応答へ漏れず、利用者向けの文言に統一される。
+     */
+    @Test
+    void parseUiDatetimeReportsFriendlyMessage() {
+        for (String bad : new String[] {"abcd-ef-gh", "2025-06-2X", "2025-06-20 XX:00", "short"}) {
+            IllegalArgumentException e = assertThrows(IllegalArgumentException.class,
+                    () -> TimeUtil.parseUiDatetime(bad));
+            assertEquals("日時形式を解釈できません: " + bad, e.getMessage());
+        }
+    }
+
+    /**
      * 試験: 日付だけを指定した終了日時（UI の時刻未入力時にフロントが送る形式）。
      * 担保: {@code 23:59:59} まで解釈でき、その日の最後の 1 分が範囲から漏れない。
      */

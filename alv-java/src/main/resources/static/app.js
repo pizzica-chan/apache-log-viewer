@@ -334,6 +334,8 @@ function buildQuery() {
 
 let loadPollTimer = null;
 let lastPageItems = [];
+/** 直近の検索に使った表示件数。change と Enter の二重リクエストを防ぐ。 */
+let appliedLimit = DEFAULT_PAGE_LIMIT;
 
 function getHighlightNeedle() {
   const text = els.highlight.value.trim();
@@ -583,6 +585,7 @@ function formatSourceLabel(source) {
 }
 
 async function loadLogs() {
+  appliedLimit = getLimit();
   pushLoading("ログを検索中...");
   try {
     const res = await fetch("/api/logs?" + buildQuery());
@@ -754,7 +757,9 @@ els.regexSamples.addEventListener("click", () => {
 els.highlight.addEventListener("input", applyRowHighlights);
 
 // 表示件数を変えるとページ位置が合わなくなるため、先頭ページから引き直す。
+// Enter で確定した場合は keydown 側が既に検索しているので、その分は読み飛ばす。
 els.pageLimit.addEventListener("change", () => {
+  if (getLimit() === appliedLimit) return;
   offset = 0;
   loadLogs();
 });

@@ -68,13 +68,18 @@ class DiscoveryTest {
     @Test
     void findLogFilesDeduplicatesSymlinkedFiles(@TempDir Path tmp) throws IOException {
         Path real = Files.createDirectory(tmp.resolve("real"));
-        Files.write(real.resolve("access_log"), "dummy".getBytes(StandardCharsets.UTF_8));
+        Path target = real.resolve("access_log");
+        Files.write(target, "dummy".getBytes(StandardCharsets.UTF_8));
+        // ログ名パターンに一致するファイルへのリンクを張り、実体へ二重に到達させる。
+        // （ディレクトリへのリンクでは walkFileTree が追従しないため再現しない）
         try {
-            Files.createSymbolicLink(tmp.resolve("link"), real);
+            Files.createSymbolicLink(tmp.resolve("access_log.link"), target);
         } catch (IOException | UnsupportedOperationException e) {
             assumeTrue(false, "シンボリックリンクを作成できない環境です: " + e);
         }
-        assertEquals(1, Discovery.findLogFiles(tmp).size());
+        List<Path> found = Discovery.findLogFiles(tmp);
+        assertEquals(1, found.size(), "実体パスが同じファイルは 1 件に集約される: " + found);
+        assertEquals(target.toRealPath(), found.get(0));
     }
 
     /**
