@@ -70,6 +70,9 @@ public final class LogServer {
      * @param port {@code 0} を指定すると空きポートが自動で割り当てられる（{@link #getPort()} で取得）
      */
     public void start(String host, int port) throws IOException {
+        // 起動時に --dir が指定されていれば、ここで読み込みを開始する。
+        store.ensureLoadStarted();
+
         HttpServer server = HttpServer.create(new InetSocketAddress(host, port), 0);
         ExecutorService executor = Executors.newFixedThreadPool(
                 Math.max(4, Runtime.getRuntime().availableProcessors()));

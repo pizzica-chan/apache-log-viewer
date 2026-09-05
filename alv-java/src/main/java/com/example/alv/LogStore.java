@@ -60,9 +60,13 @@ public final class LogStore {
      *
      * <p>1 リクエストの処理中はこの戻り値だけを参照すること。呼ぶたびに別の世代が
      * 返り得るため、複数回呼んで組み合わせると一貫性が崩れる。
+     *
+     * <p>副作用は持たない。以前はここで読み込みを開始していたが、状態を読むだけの
+     * つもりの呼び出しが裏でワーカーを起動するため、呼び出し側から挙動が読めず
+     * テストも書けなくなる。読み込みの開始は {@link #ensureLoadStarted()} を
+     * 明示的に呼ぶこと。
      */
     public LogSnapshot snapshot() {
-        ensureLoadStarted();
         return snapshot;
     }
 
