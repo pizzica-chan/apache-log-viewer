@@ -1,6 +1,7 @@
 package com.example.alv;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -163,6 +164,42 @@ class LogStoreTest {
 
         assertNull(snap.findEntry(source, any.lineNo, "wrong-timestamp"));
         assertNull(snap.findEntry("nonexistent.log", 1, null));
+    }
+
+    /**
+     * 試験: 世代が一致しない読み込み結果は反映されないこと。
+     * 担保: 追い越された古い読み込みが後から完了しても、切り替え後の状態を
+     *       上書きしない。スレッドの実行タイミングに依存せず、判定そのものを検証する。
+     */
+    @Test
+    void publishResultIgnoresOutdatedGeneration() throws Exception {
+        LogStore store = new LogStore();
+        store.setSource(TestPaths.samplesDir(), sampleLogPaths());
+        long staleGeneration = store.snapshot().generation();
+        LogStore.LoadResult staleResult = LogStore.loadEntries(sampleLogPaths(), true, null);
+        assertEquals(15, staleResult.entries.size());
+
+        // 対象を 1 ファイルへ切り替える（世代が進む）。
+        List<Path> one = sampleLogPaths().subList(0, 1);
+        store.setSource(TestPaths.samplesDir(), one);
+        long currentGeneration = store.snapshot().generation();
+        assertTrue(currentGeneration > staleGeneration);
+
+        assertFalse(store.publishResult(staleGeneration, staleResult), "古い世代の結果は破棄される");
+        assertTrue(store.snapshot().entries().isEmpty(), "古いエントリが混入していない");
+        assertEquals(1, store.snapshot().logPaths().size(), "対象は切り替え後のまま");
+
+        LogStore.LoadResult fresh = LogStore.loadEntries(one, true, null);
+        assertTrue(store.publishResult(currentGeneration, fresh), "現行世代の結果は反映される");
+        assertEquals(LogSnapshot.READY, store.snapshot().status());
+        assertEquals(fresh.entries.size(), store.snapshot().entries().size());
+
+        // 失敗の反映も同じ判定で守られる。
+        assertFalse(store.publishFailure(staleGeneration, "古いエラー"));
+        assertEquals(LogSnapshot.READY, store.snapshot().status());
+        assertTrue(store.publishFailure(store.snapshot().generation(), "読み込み失敗"));
+        assertEquals(LogSnapshot.ERROR, store.snapshot().status());
+        assertEquals("読み込み失敗", store.snapshot().error());
     }
 
     /**

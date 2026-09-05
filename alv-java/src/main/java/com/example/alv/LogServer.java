@@ -70,8 +70,6 @@ public final class LogServer {
      * @param port {@code 0} を指定すると空きポートが自動で割り当てられる（{@link #getPort()} で取得）
      */
     public void start(String host, int port) throws IOException {
-        store.ensureLoadStarted();
-
         HttpServer server = HttpServer.create(new InetSocketAddress(host, port), 0);
         ExecutorService executor = Executors.newFixedThreadPool(
                 Math.max(4, Runtime.getRuntime().availableProcessors()));
@@ -161,7 +159,8 @@ public final class LogServer {
         LogSnapshot snap = store.snapshot();
         List<LogEntry> entries = snap.entries();
         boolean loading = snap.isLoading();
-        long total = loading ? store.getLoadProgress() : entries.size();
+        long progress = store.getLoadProgress();
+        long total = loading ? progress : entries.size();
 
         JsonObject payload = new JsonObject();
         Path root = snap.logRoot();
@@ -173,7 +172,7 @@ public final class LogServer {
         payload.add("files", files);
         payload.addProperty("loading", loading);
         payload.addProperty("load_status", snap.status());
-        payload.addProperty("load_progress", store.getLoadProgress());
+        payload.addProperty("load_progress", progress);
         payload.addProperty("total", total);
         payload.addProperty("first", entries.isEmpty() ? null : entries.get(0).timestampIso());
         payload.addProperty("last", entries.isEmpty() ? null : entries.get(entries.size() - 1).timestampIso());
@@ -200,11 +199,12 @@ public final class LogServer {
     private void handleBrowse(HttpExchange ex) throws IOException {
         Map<String, String> params = queryParams(ex);
         String rawPath = params.getOrDefault("path", "");
+        LogSnapshot snap = store.snapshot();
         Path current;
         if (!rawPath.isEmpty()) {
             current = PathUtil.resolve(rawPath);
-        } else if (store.snapshot().logRoot() != null) {
-            current = store.snapshot().logRoot();
+        } else if (snap.logRoot() != null) {
+            current = snap.logRoot();
         } else {
             current = Paths.get("").toAbsolutePath();
         }

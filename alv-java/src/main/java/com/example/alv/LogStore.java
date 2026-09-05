@@ -126,22 +126,45 @@ public final class LogStore {
                     publishProgress(generation, value);
                 }
             });
-            synchronized (loadLock) {
-                if (snapshot.generation() != generation) {
-                    return; // 対象が切り替わっている。追い越された結果は捨てる。
-                }
-                snapshot = snapshot.ready(result.entries, result.skippedLines, result.skippedSamples);
-                loadProgress.set(result.entries.size());
-            }
+            publishResult(generation, result);
         } catch (Throwable t) {
-            String message = (t.getMessage() != null) ? t.getMessage() : t.toString();
-            synchronized (loadLock) {
-                if (snapshot.generation() != generation) {
-                    return;
-                }
-                snapshot = snapshot.failed(message);
-                loadProgress.set(0);
+            publishFailure(generation, (t.getMessage() != null) ? t.getMessage() : t.toString());
+        }
+    }
+
+    /**
+     * 読み込み結果を反映する。
+     *
+     * <p>対象が切り替わっていれば何もしない。追い越された古い読み込みが後から完了して
+     * 新しい状態を上書きするのを防ぐ要になる判定であり、スレッドのタイミングに
+     * 依存せず検証できるよう独立したメソッドにしている。
+     *
+     * @return 反映したら {@code true}、世代が一致せず破棄したら {@code false}
+     */
+    boolean publishResult(long generation, LoadResult result) {
+        synchronized (loadLock) {
+            if (snapshot.generation() != generation) {
+                return false;
             }
+            snapshot = snapshot.ready(result.entries, result.skippedLines, result.skippedSamples);
+            loadProgress.set(result.entries.size());
+            return true;
+        }
+    }
+
+    /**
+     * 読み込み失敗を反映する。
+     *
+     * @return 反映したら {@code true}、世代が一致せず破棄したら {@code false}
+     */
+    boolean publishFailure(long generation, String message) {
+        synchronized (loadLock) {
+            if (snapshot.generation() != generation) {
+                return false;
+            }
+            snapshot = snapshot.failed(message);
+            loadProgress.set(0);
+            return true;
         }
     }
 

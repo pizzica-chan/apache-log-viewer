@@ -10,6 +10,7 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
+import com.google.gson.JsonPrimitive;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -367,10 +368,7 @@ class LogServerTest {
     }
 
     private static String jsonString(String s) {
-        JsonArray a = new JsonArray();
-        a.add(s);
-        String encoded = a.toString();
-        return encoded.substring(1, encoded.length() - 1);
+        return new JsonPrimitive(s).toString();
     }
 
     private JsonObject getJson(String path) throws Exception {
