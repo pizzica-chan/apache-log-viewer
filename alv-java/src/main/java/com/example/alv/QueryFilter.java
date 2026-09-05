@@ -2,6 +2,7 @@ package com.example.alv;
 
 import java.io.IOException;
 import java.util.HashSet;
+import java.util.Locale;
 import java.util.Set;
 import java.util.regex.Pattern;
 
@@ -83,7 +84,11 @@ public final class QueryFilter {
 
     // ---- パラメータ解析 ---------------------------------------------------
 
-    /** {@code 500} / {@code 4xx} / {@code 500,502} 形式のステータス指定を解釈する。 */
+    /**
+     * {@code 500} / {@code 4xx} / {@code 500,502} 形式のステータス指定を解釈する。
+     *
+     * <p>{@code 4xx} の {@code xx} は大文字小文字を問わない（他のフィルタと同様）。
+     */
     public static Set<Integer> parseStatusFilter(String value) {
         if (value == null || value.isEmpty()) {
             return null;
@@ -94,9 +99,10 @@ public final class QueryFilter {
             if (part.isEmpty()) {
                 continue;
             }
-            if (part.length() == 3 && part.endsWith("xx")
-                    && part.charAt(0) >= '0' && part.charAt(0) <= '9') {
-                int base = (part.charAt(0) - '0') * 100;
+            String lower = part.toLowerCase(Locale.ROOT);
+            if (lower.length() == 3 && lower.endsWith("xx")
+                    && lower.charAt(0) >= '0' && lower.charAt(0) <= '9') {
+                int base = (lower.charAt(0) - '0') * 100;
                 for (int i = base; i < base + 100; i++) {
                     result.add(i);
                 }

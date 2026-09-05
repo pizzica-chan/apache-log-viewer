@@ -10,6 +10,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
@@ -53,13 +54,16 @@ public final class Discovery {
 
     /**
      * 指定ディレクトリ配下を再帰探索し、ログファイルのパス一覧（昇順）を返す。
+     *
+     * <p>パスは実体パスへ解決するため、シンボリックリンク経由で同一ファイルに
+     * 到達しても重複しない（同じファイルを二重に読み込まない）。
      */
     public static List<Path> findLogFiles(Path root) throws IOException {
         Path base = PathUtil.resolve(root);
         if (!Files.isDirectory(base)) {
             return Collections.emptyList();
         }
-        final List<Path> found = new ArrayList<>();
+        final Set<Path> found = new LinkedHashSet<>();
         Files.walkFileTree(base, new SimpleFileVisitor<Path>() {
             @Override
             public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attrs) {
@@ -84,8 +88,9 @@ public final class Discovery {
                 return FileVisitResult.CONTINUE;
             }
         });
-        Collections.sort(found);
-        return found;
+        List<Path> result = new ArrayList<>(found);
+        Collections.sort(result);
+        return result;
     }
 
     /** 簡易 glob マッチ（{@code *} と {@code ?} のみ）。 */

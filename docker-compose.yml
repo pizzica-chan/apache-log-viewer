@@ -5,7 +5,8 @@ services:
     container_name: alv-java
     restart: unless-stopped
     ports:
-      - "8769:8769"
+      # ループバックのみに公開する（無認証のため LAN へ露出させない）
+      - "127.0.0.1:8769:8769"
     volumes:
       # サンプルログ（読み取り専用）。別ディレクトリを試す場合は ALV_LOG_DIR を指定
       - ${ALV_LOG_DIR:-./samples}:/app/logs/samples:ro

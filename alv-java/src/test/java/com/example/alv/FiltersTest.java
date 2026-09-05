@@ -1,5 +1,6 @@
 package com.example.alv;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -37,6 +38,20 @@ class FiltersTest {
         assertFalse(range.contains(500));
         Set<Integer> multi = QueryFilter.parseStatusFilter("500,502");
         assertTrue(multi.contains(500) && multi.contains(502));
+    }
+
+    /**
+     * 試験: ステータス範囲指定の大文字表記（{@code 4XX}）。
+     * 担保: 他のフィルタと同様に大文字小文字を区別せず、小文字表記と同じ集合になる。
+     */
+    @Test
+    void parseStatusFilterIsCaseInsensitive() {
+        Set<Integer> upper = QueryFilter.parseStatusFilter("4XX");
+        assertTrue(upper.contains(400));
+        assertTrue(upper.contains(499));
+        assertFalse(upper.contains(500));
+        assertEquals(QueryFilter.parseStatusFilter("4xx"), upper);
+        assertEquals(QueryFilter.parseStatusFilter("5xx"), QueryFilter.parseStatusFilter("5Xx"));
     }
 
     /**

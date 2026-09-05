@@ -6,11 +6,13 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 /**
  * {@link Discovery} の単体テスト。
@@ -56,6 +58,23 @@ class DiscoveryTest {
     @Test
     void findLogFilesMissingDirReturnsEmpty() throws IOException {
         assertTrue(Discovery.findLogFiles(java.nio.file.Paths.get("does-not-exist-xyz")).isEmpty());
+    }
+
+    /**
+     * 試験: シンボリックリンク経由で同一ファイルに二重到達する構成の探索。
+     * 担保: 実体パスで重複排除され、同じログを 2 回読み込まない。
+     *       （シンボリックリンクを作成できない環境ではスキップする）
+     */
+    @Test
+    void findLogFilesDeduplicatesSymlinkedFiles(@TempDir Path tmp) throws IOException {
+        Path real = Files.createDirectory(tmp.resolve("real"));
+        Files.write(real.resolve("access_log"), "dummy".getBytes(StandardCharsets.UTF_8));
+        try {
+            Files.createSymbolicLink(tmp.resolve("link"), real);
+        } catch (IOException | UnsupportedOperationException e) {
+            assumeTrue(false, "シンボリックリンクを作成できない環境です: " + e);
+        }
+        assertEquals(1, Discovery.findLogFiles(tmp).size());
     }
 
     /**

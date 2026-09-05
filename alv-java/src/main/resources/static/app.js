@@ -3,6 +3,8 @@ const MAX_PAGE_LIMIT = 5000;
 let offset = 0;
 let lastTotal = 0;
 let browsePath = "";
+/** ディレクトリ参照ダイアログの親ディレクトリ（無ければ null）。 */
+let browseParent = null;
 let metaRange = { first: null, last: null };
 
 const els = {
@@ -211,14 +213,16 @@ function clearExactQueryRange() {
 
 function getSinceParam() {
   if (!els.sinceDate.value) return null;
-  const time = els.sinceTime.value || "00:00";
-  return `${els.sinceDate.value} ${time}:00`;
+  // 時刻未指定なら当日の先頭（00:00:00）から。
+  const time = els.sinceTime.value ? `${els.sinceTime.value}:00` : "00:00:00";
+  return `${els.sinceDate.value} ${time}`;
 }
 
 function getUntilParam() {
   if (!els.untilDate.value) return null;
-  const time = els.untilTime.value || "23:59";
-  return `${els.untilDate.value} ${time}:00`;
+  // 時刻未指定なら当日の末尾（23:59:59）まで含める（until は境界を含む判定のため）。
+  const time = els.untilTime.value ? `${els.untilTime.value}:59` : "23:59:59";
+  return `${els.untilDate.value} ${time}`;
 }
 
 function updateRangeUi() {
@@ -520,6 +524,18 @@ async function openBrowseDialog() {
 }
 
 async function refreshBrowseList() {
+  pushLoading("ディレクトリ一覧を取得中...");
+  try {
+    await fetchBrowseList();
+  } catch (e) {
+    alert("ディレクトリ一覧の取得に失敗しました: " + e);
+  } finally {
+    popLoading();
+  }
+}
+
+/** 実際の取得と描画（エラー処理は refreshBrowseList 側で行う）。 */
+async function fetchBrowseList() {
   const params = new URLSearchParams();
   if (browsePath) params.set("path", browsePath);
   const res = await fetch("/api/browse?" + params);
@@ -529,8 +545,9 @@ async function refreshBrowseList() {
     return;
   }
   browsePath = data.current;
+  browseParent = data.parent || null;
   els.browseCurrent.textContent = data.current;
-  els.browseUp.disabled = !data.parent;
+  els.browseUp.disabled = !browseParent;
   els.browseList.innerHTML = "";
   for (const dir of data.directories) {
     const li = document.createElement("li");
@@ -703,14 +720,9 @@ for (const el of [els.sinceDate, els.sinceTime, els.untilDate, els.untilTime]) {
   });
 }
 els.browseUp.addEventListener("click", async () => {
-  const params = new URLSearchParams();
-  params.set("path", browsePath);
-  const res = await fetch("/api/browse?" + params);
-  const data = await res.json();
-  if (data.parent) {
-    browsePath = data.parent;
-    await refreshBrowseList();
-  }
+  if (!browseParent) return;
+  browsePath = browseParent;
+  await refreshBrowseList();
 });
 els.browseSelect.addEventListener("click", () => {
   els.logDir.value = browsePath;
@@ -740,6 +752,12 @@ els.regexSamples.addEventListener("click", () => {
 });
 
 els.highlight.addEventListener("input", applyRowHighlights);
+
+// 表示件数を変えるとページ位置が合わなくなるため、先頭ページから引き直す。
+els.pageLimit.addEventListener("change", () => {
+  offset = 0;
+  loadLogs();
+});
 
 els.prev.addEventListener("click", () => {
   offset = Math.max(0, offset - getLimit());

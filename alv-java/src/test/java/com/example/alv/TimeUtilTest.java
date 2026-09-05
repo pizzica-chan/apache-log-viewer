@@ -128,4 +128,47 @@ class TimeUtilTest {
         long minute = TimeUtil.parseUiDatetime("2025-06-20 08:30");
         assertEquals(full, minute);
     }
+
+    /**
+     * 試験: 実在しない日時を含む UI 日時文字列。
+     * 担保: 桁数が揃っていても月・日・時分秒が範囲外なら例外になり、
+     *       翌月へ繰り上がった別の日時として黙って検索されない。
+     */
+    @Test
+    void parseUiDatetimeRejectsOutOfRangeValues() {
+        assertThrows(IllegalArgumentException.class, () -> TimeUtil.parseUiDatetime("2025-13-45"));
+        assertThrows(IllegalArgumentException.class, () -> TimeUtil.parseUiDatetime("2025-00-10"));
+        assertThrows(IllegalArgumentException.class, () -> TimeUtil.parseUiDatetime("2025-02-29"));
+        assertThrows(IllegalArgumentException.class,
+                () -> TimeUtil.parseUiDatetime("2025-06-20 24:00:00"));
+        assertThrows(IllegalArgumentException.class,
+                () -> TimeUtil.parseUiDatetime("2025-06-20 08:60:00"));
+        // うるう年の 2/29 は有効。
+        assertTrue(TimeUtil.parseUiDatetime("2024-02-29") > 0);
+    }
+
+    /**
+     * 試験: 実在しない日時を含む Apache タイムスタンプ。
+     * 担保: 繰り上がった別の時刻として取り込まれず、解析失敗（null）として
+     *       スキップ行の警告に集計される。
+     */
+    @Test
+    void parseApacheTimestampRejectsOutOfRangeValues() {
+        assertNull(TimeUtil.parseApacheTimestamp("32/Jan/2025:08:01:12 +0900"));
+        assertNull(TimeUtil.parseApacheTimestamp("29/Feb/2025:08:01:12 +0900"));
+        assertNull(TimeUtil.parseApacheTimestamp("20/Jun/2025:24:01:12 +0900"));
+        assertNull(TimeUtil.parseApacheTimestamp("20/Jun/2025:08:61:12 +0900"));
+        assertNotNull(TimeUtil.parseApacheTimestamp("29/Feb/2024:08:01:12 +0900"));
+    }
+
+    /**
+     * 試験: 日付だけを指定した終了日時（UI の時刻未入力時にフロントが送る形式）。
+     * 担保: {@code 23:59:59} まで解釈でき、その日の最後の 1 分が範囲から漏れない。
+     */
+    @Test
+    void parseUiDatetimeEndOfDay() {
+        long endOfDay = TimeUtil.parseUiDatetime("2025-06-20 23:59:59");
+        long startOfNextDay = TimeUtil.parseUiDatetime("2025-06-21");
+        assertEquals(1000L, startOfNextDay - endOfDay);
+    }
 }

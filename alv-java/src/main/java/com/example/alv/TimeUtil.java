@@ -21,6 +21,7 @@ public final class TimeUtil {
      * Apache 形式のタイムスタンプ {@code 10/Oct/2000:13:55:36 -0700} を解析する。
      *
      * <p>タイムゾーンが無い場合は {@code +0000}（UTC）とみなす。
+     * 実在しない日時（{@code 32/Jan}、{@code 29/Feb} の平年など）は解析失敗として扱う。
      *
      * @return {@code [utcMillis, offsetMinutes]}。解析できない場合は {@code null}
      */
@@ -50,9 +51,16 @@ public final class TimeUtil {
             int min = Integer.parseInt(timePart.substring(3, 5));
             int sec = Integer.parseInt(timePart.substring(6, 8));
 
+            if (!isValidDateTime(year, month, day, hour, min, sec)) {
+                return null;
+            }
+
             int sign = tz.charAt(0) == '-' ? -1 : 1;
             int offHour = Integer.parseInt(tz.substring(1, 3));
             int offMin = Integer.parseInt(tz.substring(3, 5));
+            if (offHour > 23 || offMin > 59) {
+                return null;
+            }
             int offsetMinutes = sign * (offHour * 60 + offMin);
 
             long localMillis = toMillis(year, month, day, hour, min, sec, 0);
@@ -88,8 +96,13 @@ public final class TimeUtil {
             if (v.length() >= 19) {
                 sec = Integer.parseInt(v.substring(17, 19));
             }
+            if (!isValidDateTime(year, month, day, hour, min, sec)) {
+                throw new IllegalArgumentException("日時形式を解釈できません: " + value);
+            }
             long localMillis = toMillis(year, month, day, hour, min, sec, 0);
             return localMillis - UI_DATETIME_OFFSET_MINUTES * 60_000L;
+        } catch (IllegalArgumentException e) {
+            throw e;
         } catch (RuntimeException e) {
             throw new IllegalArgumentException("日時形式を解釈できません: " + value);
         }
@@ -133,6 +146,38 @@ public final class TimeUtil {
         pad(sb, abs / 60, 2);
         sb.append(':');
         pad(sb, abs % 60, 2);
+    }
+
+    /** 年月日・時分秒が実在する値かどうか（うるう年を考慮した月末日まで判定）。 */
+    static boolean isValidDateTime(int year, int month, int day, int hour, int min, int sec) {
+        if (month < 1 || month > 12) {
+            return false;
+        }
+        if (day < 1 || day > daysInMonth(year, month)) {
+            return false;
+        }
+        return hour >= 0 && hour <= 23
+                && min >= 0 && min <= 59
+                && sec >= 0 && sec <= 59;
+    }
+
+    /** 指定年月の日数。 */
+    static int daysInMonth(int year, int month) {
+        switch (month) {
+            case 2:
+                return isLeapYear(year) ? 29 : 28;
+            case 4:
+            case 6:
+            case 9:
+            case 11:
+                return 30;
+            default:
+                return 31;
+        }
+    }
+
+    private static boolean isLeapYear(int year) {
+        return (year % 4 == 0 && year % 100 != 0) || year % 400 == 0;
     }
 
     static long toMillis(int year, int month, int day, int hour, int min, int sec, int milli) {

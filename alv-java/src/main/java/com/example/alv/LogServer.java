@@ -298,15 +298,16 @@ public final class LogServer {
 
         List<LogEntry> entries = store.getEntries();
         List<LogEntry> page = new ArrayList<>();
+        List<String> pageRaw = new ArrayList<>();
         JsonArray items = new JsonArray();
         long total;
         try (LineReader reader = new LineReader(store.getLogPaths())) {
-            QueryFilter.RawLine raw = filter.needsRaw()
-                    ? e -> reader.read(e.fileId, e.byteOffset)
-                    : null;
-            total = collect(entries, filter, page, offset, limit, raw);
-            for (LogEntry e : page) {
-                items.add(rowJson(e, reader.read(e.fileId, e.byteOffset)));
+            LastRawLine raw = filter.needsRaw() ? new LastRawLine(reader) : null;
+            total = collect(entries, filter, page, pageRaw, offset, limit, raw);
+            for (int i = 0; i < page.size(); i++) {
+                LogEntry e = page.get(i);
+                String line = pageRaw.get(i);
+                items.add(rowJson(e, line != null ? line : reader.read(e.fileId, e.byteOffset)));
             }
         }
         JsonObject payload = new JsonObject();
@@ -318,7 +319,8 @@ public final class LogServer {
     }
 
     private long collect(List<LogEntry> entries, QueryFilter filter, List<LogEntry> page,
-                         long offset, long limit, QueryFilter.RawLine raw) throws IOException {
+                         List<String> pageRaw, long offset, long limit, LastRawLine raw)
+            throws IOException {
         long total = 0;
         long end = offset + limit;
         for (LogEntry e : entries) {
@@ -327,10 +329,37 @@ public final class LogServer {
             }
             if (total >= offset && total < end) {
                 page.add(e);
+                // grep 指定時は判定で読んだ生ログをそのまま使い、同じ行の再読を避ける。
+                pageRaw.add(raw != null ? raw.last() : null);
             }
             total++;
         }
         return total;
+    }
+
+    /**
+     * grep 判定用の生ログリーダー。直近に読んだ行を保持し、そのままレスポンスに再利用する。
+     *
+     * <p>{@link QueryFilter#matches} は grep を最後に評価するため、判定が {@code true} の
+     * エントリについては必ず {@link #read} が呼ばれており、{@link #last()} は当該行を指す。
+     */
+    private static final class LastRawLine implements QueryFilter.RawLine {
+        private final LineReader reader;
+        private String last;
+
+        LastRawLine(LineReader reader) {
+            this.reader = reader;
+        }
+
+        @Override
+        public String read(LogEntry entry) throws IOException {
+            last = reader.read(entry.fileId, entry.byteOffset);
+            return last;
+        }
+
+        String last() {
+            return last;
+        }
     }
 
     private JsonObject rowJson(LogEntry e, String raw) {
@@ -405,6 +434,7 @@ public final class LogServer {
         }
     }
 
+    /** 静的ファイルを読み出す（存在しない場合の {@code null} もキャッシュして再探索を防ぐ）。 */
     private byte[] loadStatic(String name) {
         if (name.contains("..")) {
             return null;
