@@ -26,6 +26,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.TreeMap;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.regex.PatternSyntaxException;
 
@@ -53,25 +54,39 @@ public final class LogServer {
     private final LogStore store = new LogStore();
     private final Map<String, byte[]> staticCache = new HashMap<>();
 
+    private volatile HttpServer server;
+    private volatile ExecutorService executor;
+
     public LogServer(Path logRoot, List<Path> logPaths) {
         store.setSource(logRoot, logPaths);
     }
 
-    /** サーバを起動して待ち受ける（戻らない）。 */
+    /**
+     * サーバを起動して待ち受ける。
+     *
+     * <p>{@link HttpServer} は自前のスレッドで動くため、このメソッドは即座に戻る。
+     * プロセスは待ち受けスレッドによって生存し続ける。
+     *
+     * @param port {@code 0} を指定すると空きポートが自動で割り当てられる（{@link #getPort()} で取得）
+     */
     public void start(String host, int port) throws IOException {
         store.ensureLoadStarted();
 
         HttpServer server = HttpServer.create(new InetSocketAddress(host, port), 0);
-        server.setExecutor(Executors.newFixedThreadPool(
-                Math.max(4, Runtime.getRuntime().availableProcessors())));
+        ExecutorService executor = Executors.newFixedThreadPool(
+                Math.max(4, Runtime.getRuntime().availableProcessors()));
+        server.setExecutor(executor);
         server.createContext("/", new RootHandler());
+        this.server = server;
+        this.executor = executor;
 
-        System.out.println("Apache Log Viewer (Java): http://" + host + ":" + port);
-        Path root = store.getLogRoot();
+        System.out.println("Apache Log Viewer (Java): http://" + host + ":" + server.getAddress().getPort());
+        LogSnapshot snap = store.snapshot();
+        Path root = snap.logRoot();
         if (root != null) {
             System.out.println("ログディレクトリ: " + PathUtil.normalizePath(root));
         }
-        List<Path> paths = store.getLogPaths();
+        List<Path> paths = snap.logPaths();
         System.out.println("読み込みファイル (" + paths.size() + "):");
         for (Path p : paths) {
             System.out.println("  - " + PathUtil.normalizePath(p));
@@ -80,6 +95,26 @@ public final class LogServer {
             System.out.println("  (未読み込み — ブラウザからディレクトリを選択してください)");
         }
         server.start();
+    }
+
+    /** 実際に待ち受けているポート。未起動なら {@code -1}。 */
+    public int getPort() {
+        HttpServer s = server;
+        return (s != null) ? s.getAddress().getPort() : -1;
+    }
+
+    /** サーバを停止し、リクエスト処理スレッドを解放する。 */
+    public void stop() {
+        HttpServer s = server;
+        if (s != null) {
+            s.stop(0);
+            server = null;
+        }
+        ExecutorService ex = executor;
+        if (ex != null) {
+            ex.shutdownNow();
+            executor = null;
+        }
     }
 
     // ---- ルーティング -----------------------------------------------------
@@ -122,38 +157,40 @@ public final class LogServer {
     // ---- API: meta --------------------------------------------------------
 
     private JsonObject metaPayload() {
-        List<LogEntry> entries = store.getEntries();
-        boolean loading = store.isLoading();
+        // 1 レスポンス内で状態が食い違わないよう、スナップショットは 1 回だけ取得する。
+        LogSnapshot snap = store.snapshot();
+        List<LogEntry> entries = snap.entries();
+        boolean loading = snap.isLoading();
         long total = loading ? store.getLoadProgress() : entries.size();
 
         JsonObject payload = new JsonObject();
-        Path root = store.getLogRoot();
+        Path root = snap.logRoot();
         payload.addProperty("directory", root != null ? PathUtil.normalizePath(root) : null);
         JsonArray files = new JsonArray();
-        for (String name : store.getSourceNames()) {
+        for (String name : snap.sourceNames()) {
             files.add(name);
         }
         payload.add("files", files);
         payload.addProperty("loading", loading);
-        payload.addProperty("load_status", store.getLoadStatus());
+        payload.addProperty("load_status", snap.status());
         payload.addProperty("load_progress", store.getLoadProgress());
         payload.addProperty("total", total);
         payload.addProperty("first", entries.isEmpty() ? null : entries.get(0).timestampIso());
         payload.addProperty("last", entries.isEmpty() ? null : entries.get(entries.size() - 1).timestampIso());
-        if (!loading && store.getSkippedLineCount() > 0) {
-            payload.addProperty("skipped_lines", store.getSkippedLineCount());
+        if (!loading && snap.skippedLines() > 0) {
+            payload.addProperty("skipped_lines", snap.skippedLines());
             JsonArray samples = new JsonArray();
-            for (SkippedLine s : store.getSkippedLineSamples()) {
+            for (SkippedLine s : snap.skippedSamples()) {
                 JsonObject o = new JsonObject();
-                o.addProperty("source", store.sourceName(s.fileId));
+                o.addProperty("source", snap.sourceName(s.fileId));
                 o.addProperty("line_no", s.lineNo);
                 o.addProperty("preview", s.preview);
                 samples.add(o);
             }
             payload.add("skipped_samples", samples);
         }
-        if (store.getLoadError() != null) {
-            payload.addProperty("load_error", store.getLoadError());
+        if (snap.error() != null) {
+            payload.addProperty("load_error", snap.error());
         }
         return payload;
     }
@@ -166,8 +203,8 @@ public final class LogServer {
         Path current;
         if (!rawPath.isEmpty()) {
             current = PathUtil.resolve(rawPath);
-        } else if (store.getLogRoot() != null) {
-            current = store.getLogRoot();
+        } else if (store.snapshot().logRoot() != null) {
+            current = store.snapshot().logRoot();
         } else {
             current = Paths.get("").toAbsolutePath();
         }
@@ -243,7 +280,9 @@ public final class LogServer {
     // ---- API: logs --------------------------------------------------------
 
     private void handleLogs(HttpExchange ex) throws IOException {
-        if (store.isLoading()) {
+        // 対象パスとエントリの組み合わせがずれないよう、以降は同じスナップショットだけを使う。
+        LogSnapshot snap = store.snapshot();
+        if (snap.isLoading()) {
             JsonObject payload = new JsonObject();
             payload.addProperty("loading", true);
             payload.addProperty("load_progress", store.getLoadProgress());
@@ -254,8 +293,8 @@ public final class LogServer {
             sendJson(ex, 200, payload);
             return;
         }
-        if (store.isError()) {
-            sendErrorJson(ex, 500, store.getLoadError() != null ? store.getLoadError() : "読み込みに失敗しました");
+        if (snap.isError()) {
+            sendErrorJson(ex, 500, snap.error() != null ? snap.error() : "読み込みに失敗しました");
             return;
         }
 
@@ -298,18 +337,18 @@ public final class LogServer {
             return;
         }
 
-        List<LogEntry> entries = store.getEntries();
+        List<LogEntry> entries = snap.entries();
         List<LogEntry> page = new ArrayList<>();
         List<String> pageRaw = new ArrayList<>();
         JsonArray items = new JsonArray();
         long total;
-        try (LineReader reader = new LineReader(store.getLogPaths())) {
+        try (LineReader reader = new LineReader(snap.logPaths())) {
             LastRawLine raw = filter.needsRaw() ? new LastRawLine(reader) : null;
-            total = collect(entries, filter, page, pageRaw, offset, limit, raw);
+            total = collect(snap, entries, filter, page, pageRaw, offset, limit, raw);
             for (int i = 0; i < page.size(); i++) {
                 LogEntry e = page.get(i);
                 String line = pageRaw.get(i);
-                items.add(rowJson(e, line != null ? line : reader.read(e.fileId, e.byteOffset)));
+                items.add(rowJson(snap, e, line != null ? line : reader.read(e.fileId, e.byteOffset)));
             }
         }
         JsonObject payload = new JsonObject();
@@ -320,13 +359,13 @@ public final class LogServer {
         sendJson(ex, 200, payload);
     }
 
-    private long collect(List<LogEntry> entries, QueryFilter filter, List<LogEntry> page,
-                         List<String> pageRaw, long offset, long limit, LastRawLine raw)
-            throws IOException {
+    private long collect(LogSnapshot snap, List<LogEntry> entries, QueryFilter filter,
+                         List<LogEntry> page, List<String> pageRaw, long offset, long limit,
+                         LastRawLine raw) throws IOException {
         long total = 0;
         long end = offset + limit;
         for (LogEntry e : entries) {
-            if (!filter.matches(e, store.sourceName(e), raw)) {
+            if (!filter.matches(e, snap.sourceName(e), raw)) {
                 continue;
             }
             if (total >= offset && total < end) {
@@ -369,7 +408,7 @@ public final class LogServer {
         }
     }
 
-    private JsonObject rowJson(LogEntry e, String raw) {
+    private JsonObject rowJson(LogSnapshot snap, LogEntry e, String raw) {
         JsonObject o = new JsonObject();
         o.addProperty("timestamp", e.timestampIso());
         o.addProperty("status", e.status == LogEntry.NO_STATUS ? null : Integer.valueOf(e.status));
@@ -378,7 +417,7 @@ public final class LogServer {
         o.addProperty("client_host", e.clientHost);
         o.addProperty("host", e.host);
         o.addProperty("forwarded_for", e.forwardedFor);
-        o.addProperty("source", store.sourceName(e));
+        o.addProperty("source", snap.sourceName(e));
         o.addProperty("line_no", e.lineNo);
         o.addProperty("raw", raw);
         return o;
@@ -405,19 +444,20 @@ public final class LogServer {
             return;
         }
 
-        LogEntry entry = store.findEntry(source, lineNo, timestamp);
+        LogSnapshot snap = store.snapshot();
+        LogEntry entry = snap.findEntry(source, lineNo, timestamp);
         if (entry == null) {
             sendErrorJson(ex, 404, "該当行が見つかりません");
             return;
         }
 
         String raw;
-        try (LineReader reader = new LineReader(store.getLogPaths())) {
+        try (LineReader reader = new LineReader(snap.logPaths())) {
             raw = reader.read(entry.fileId, entry.byteOffset);
         }
 
         JsonObject o = new JsonObject();
-        o.addProperty("source", store.sourceName(entry));
+        o.addProperty("source", snap.sourceName(entry));
         o.addProperty("line_no", entry.lineNo);
         o.addProperty("client_host", entry.clientHost);
         o.addProperty("host", entry.host);

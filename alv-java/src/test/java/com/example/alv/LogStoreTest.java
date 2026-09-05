@@ -150,18 +150,51 @@ class LogStoreTest {
         store.startLoad();
         waitUntilReady(store, 10, TimeUnit.SECONDS);
 
-        assertEquals("ready", store.getLoadStatus());
-        assertEquals(15, store.getEntries().size());
-        assertEquals(5, store.getSkippedLineCount());
+        LogSnapshot snap = store.snapshot();
+        assertEquals(LogSnapshot.READY, snap.status());
+        assertEquals(15, snap.entries().size());
+        assertEquals(5, snap.skippedLines());
 
-        LogEntry any = store.getEntries().get(0);
-        String source = store.sourceName(any);
-        LogEntry found = store.findEntry(source, any.lineNo, any.timestampIso());
+        LogEntry any = snap.entries().get(0);
+        String source = snap.sourceName(any);
+        LogEntry found = snap.findEntry(source, any.lineNo, any.timestampIso());
         assertNotNull(found);
         assertEquals(any.byteOffset, found.byteOffset);
 
-        assertNull(store.findEntry(source, any.lineNo, "wrong-timestamp"));
-        assertNull(store.findEntry("nonexistent.log", 1, null));
+        assertNull(snap.findEntry(source, any.lineNo, "wrong-timestamp"));
+        assertNull(snap.findEntry("nonexistent.log", 1, null));
+    }
+
+    /**
+     * 試験: 読み込み中に別ディレクトリへ切り替えたときの結果反映。
+     * 担保: 先に始まった重い読み込みが後から完了しても、新しい読み込み結果を
+     *       上書きしない（世代が一致しない結果は破棄される）。
+     *       この保護が無いと、件数・ファイル名・エントリの組み合わせが壊れる。
+     */
+    @Test
+    void staleLoadResultIsDiscarded() throws Exception {
+        LogStore store = new LogStore();
+        // 1 本目: サンプル全件（4 ファイル・15 行）
+        store.setSource(TestPaths.samplesDir(), sampleLogPaths());
+        store.startLoad();
+        // 完了を待たずに 2 本目へ切り替える（1 ファイルだけ）
+        List<Path> one = sampleLogPaths().subList(0, 1);
+        store.setSource(TestPaths.samplesDir(), one);
+        store.startLoad();
+        waitUntilReady(store, 10, TimeUnit.SECONDS);
+        // 1 本目が遅れて完了しても上書きされないこと。
+        Thread.sleep(300);
+
+        LogSnapshot snap = store.snapshot();
+        assertEquals(LogSnapshot.READY, snap.status());
+        assertEquals(1, snap.logPaths().size(), "対象は切り替え後の 1 ファイル");
+        assertEquals(1, snap.sourceNames().size());
+        // エントリの fileId が sourceNames の範囲に収まっている（添字ずれが無い）。
+        for (LogEntry e : snap.entries()) {
+            assertTrue(e.fileId < snap.sourceNames().size(),
+                    "fileId=" + e.fileId + " が範囲外");
+        }
+        assertEquals(snap.entries().size(), store.getLoadProgress());
     }
 
     /**
@@ -172,16 +205,33 @@ class LogStoreTest {
     void setSourceResetsToIdle() {
         LogStore store = new LogStore();
         store.setSource(TestPaths.samplesDir(), java.util.Collections.<Path>emptyList());
-        assertEquals("idle", store.getLoadStatus());
-        assertTrue(store.getEntries().isEmpty());
+        LogSnapshot snap = store.snapshot();
+        assertEquals(LogSnapshot.IDLE, snap.status());
+        assertTrue(snap.entries().isEmpty());
         assertEquals(0, store.getLoadProgress());
+    }
+
+    /**
+     * 試験: 読み込み対象を切り替えるたびに世代番号が進むこと。
+     * 担保: 古い読み込みワーカーが自分の結果を破棄すべきかを判断できる。
+     */
+    @Test
+    void generationAdvancesOnEachSetSource() {
+        LogStore store = new LogStore();
+        long first = store.snapshot().generation();
+        store.setSource(TestPaths.samplesDir(), java.util.Collections.<Path>emptyList());
+        long second = store.snapshot().generation();
+        store.setSource(TestPaths.samplesDir(), java.util.Collections.<Path>emptyList());
+        long third = store.snapshot().generation();
+        assertTrue(first < second && second < third,
+                "generation: " + first + " -> " + second + " -> " + third);
     }
 
     private static void waitUntilReady(LogStore store, long timeout, TimeUnit unit) throws InterruptedException {
         long deadline = System.nanoTime() + unit.toNanos(timeout);
         while (System.nanoTime() < deadline) {
-            String status = store.getLoadStatus();
-            if ("ready".equals(status) || "error".equals(status)) {
+            String status = store.snapshot().status();
+            if (LogSnapshot.READY.equals(status) || LogSnapshot.ERROR.equals(status)) {
                 return;
             }
             Thread.sleep(50);

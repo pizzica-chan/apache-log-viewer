@@ -24,6 +24,13 @@ import java.util.function.LongConsumer;
  * 読み込みはバックグラウンドのデーモンスレッドで実行し、UI からの問い合わせには
  * 読み込み状態（idle / loading / ready / error）と進捗（行数）を返す。
  *
+ * <h2>状態の一貫性</h2>
+ * <p>対象パス・ファイル名・解析済みエントリは {@link LogSnapshot} に束ねて
+ * <b>参照 1 回の代入</b>で差し替える。個別のフィールドに分けて持つと、読み込みの
+ * 差し替え中に「エントリは前のディレクトリ、パスは次のディレクトリ」という
+ * 組み合わせを外部から観測できてしまうため。読み込み中に対象を切り替えると
+ * ワーカーが 2 本走り得るが、世代番号が一致しない古い結果は破棄する。
+ *
  * <h2>パフォーマンス設計</h2>
  * <ul>
  *   <li>複数ファイルを {@link ExecutorService} で<b>並列パース</b>し、ファイルごとの
@@ -40,149 +47,111 @@ public final class LogStore {
     private static final int MAX_SKIPPED_SAMPLES = 5;
     private static final int PREVIEW_MAX_LEN = 120;
 
-    private volatile Path logRoot;
-    private volatile List<Path> logPaths = Collections.emptyList();
-    private volatile List<String> sourceNames = Collections.emptyList();
-    private volatile List<LogEntry> entries;
-
-    private volatile String loadStatus = "idle"; // idle / loading / ready / error
-    private volatile String loadError;
-    private final AtomicLong loadProgress = new AtomicLong();
-    private volatile int skippedLineCount;
-    private volatile List<SkippedLine> skippedLineSamples = Collections.emptyList();
-
     private final Object loadLock = new Object();
+    private volatile LogSnapshot snapshot = LogSnapshot.empty();
+    private final AtomicLong loadProgress = new AtomicLong();
+    /** 世代番号の採番。{@link #loadLock} の下でのみ更新する。 */
+    private long generationSeq;
 
     // ---- 状態アクセス -----------------------------------------------------
 
-    public Path getLogRoot() {
-        return logRoot;
+    /**
+     * 現在のスナップショット。
+     *
+     * <p>1 リクエストの処理中はこの戻り値だけを参照すること。呼ぶたびに別の世代が
+     * 返り得るため、複数回呼んで組み合わせると一貫性が崩れる。
+     */
+    public LogSnapshot snapshot() {
+        ensureLoadStarted();
+        return snapshot;
     }
 
-    public List<Path> getLogPaths() {
-        return logPaths;
-    }
-
-    public List<String> getSourceNames() {
-        return sourceNames;
-    }
-
-    public String getLoadStatus() {
-        return loadStatus;
-    }
-
-    public String getLoadError() {
-        return loadError;
-    }
-
+    /** 読み込み済み行数（読み込み中は途中経過）。 */
     public long getLoadProgress() {
         return loadProgress.get();
     }
 
-    public int getSkippedLineCount() {
-        return skippedLineCount;
-    }
-
-    public List<SkippedLine> getSkippedLineSamples() {
-        return skippedLineSamples;
-    }
-
-    public boolean isLoading() {
-        return "loading".equals(loadStatus);
-    }
-
-    public boolean isError() {
-        return "error".equals(loadStatus);
-    }
-
-    public String sourceName(LogEntry entry) {
-        return sourceNames.get(entry.fileId);
-    }
-
-    public String sourceName(int fileId) {
-        return sourceNames.get(fileId);
-    }
-
-    /** 読み込み対象を設定し、状態を idle にリセットする。 */
-    public synchronized void setSource(Path root, List<Path> paths) {
-        this.logRoot = root;
-        this.logPaths = paths != null ? paths : Collections.<Path>emptyList();
-        List<String> names = new ArrayList<>(this.logPaths.size());
-        for (Path p : this.logPaths) {
+    /** 読み込み対象を設定し、状態を idle にリセットする（世代を進める）。 */
+    public void setSource(Path root, List<Path> paths) {
+        List<Path> copy = (paths != null) ? new ArrayList<>(paths) : new ArrayList<Path>();
+        List<String> names = new ArrayList<>(copy.size());
+        for (Path p : copy) {
             names.add(PathUtil.normalizePath(p));
         }
-        this.sourceNames = names;
-        this.entries = null;
-        this.loadStatus = "idle";
-        this.loadError = null;
-        this.loadProgress.set(0);
-        this.skippedLineCount = 0;
-        this.skippedLineSamples = Collections.emptyList();
-    }
-
-    /** 読み込み済みエントリ（未読み込み時は空リスト）。 */
-    public List<LogEntry> getEntries() {
-        ensureLoadStarted();
-        List<LogEntry> e = entries;
-        return e != null ? e : Collections.<LogEntry>emptyList();
+        synchronized (loadLock) {
+            generationSeq++;
+            snapshot = LogSnapshot.withSource(generationSeq, root, copy, names);
+            loadProgress.set(0);
+        }
     }
 
     /** 対象があり idle なら読み込みを開始する。 */
     public void ensureLoadStarted() {
-        if (!logPaths.isEmpty() && "idle".equals(loadStatus)) {
+        LogSnapshot current = snapshot;
+        if (!current.logPaths().isEmpty() && LogSnapshot.IDLE.equals(current.status())) {
             startLoad();
         }
     }
 
     /** バックグラウンドで読み込みを開始する。 */
     public void startLoad() {
+        final long generation;
+        final List<Path> paths;
         synchronized (loadLock) {
-            if ("loading".equals(loadStatus)) {
+            LogSnapshot current = snapshot;
+            if (current.isLoading()) {
                 return;
             }
-            loadStatus = "loading";
-            loadError = null;
+            snapshot = current.loading();
             loadProgress.set(0);
-            entries = null;
+            generation = current.generation();
+            paths = current.logPaths();
         }
-        final List<Path> paths = new ArrayList<>(logPaths);
-
-        Thread worker = new Thread(() -> {
-            try {
-                LoadResult result = loadEntries(paths, true, loadProgress::set);
-                synchronized (loadLock) {
-                    entries = result.entries;
-                    skippedLineCount = result.skippedLines;
-                    skippedLineSamples = result.skippedSamples;
-                    loadProgress.set(result.entries.size());
-                    loadStatus = "ready";
-                }
-            } catch (Throwable t) {
-                synchronized (loadLock) {
-                    loadStatus = "error";
-                    loadError = t.getMessage() != null ? t.getMessage() : t.toString();
-                    entries = Collections.emptyList();
-                    skippedLineCount = 0;
-                    skippedLineSamples = Collections.emptyList();
-                }
+        Thread worker = new Thread(new Runnable() {
+            @Override
+            public void run() {
+                runLoad(generation, paths);
             }
         }, "alv-loader");
         worker.setDaemon(true);
         worker.start();
     }
 
-    /** source / line_no（と任意の timestamp）に一致するエントリを探す。 */
-    public LogEntry findEntry(String source, int lineNo, String timestamp) {
-        for (LogEntry e : getEntries()) {
-            if (!sourceName(e).equals(source) || e.lineNo != lineNo) {
-                continue;
+    /** 読み込み本体。世代が一致する場合だけ結果を反映する。 */
+    private void runLoad(final long generation, List<Path> paths) {
+        try {
+            LoadResult result = loadEntries(paths, true, new LongConsumer() {
+                @Override
+                public void accept(long value) {
+                    publishProgress(generation, value);
+                }
+            });
+            synchronized (loadLock) {
+                if (snapshot.generation() != generation) {
+                    return; // 対象が切り替わっている。追い越された結果は捨てる。
+                }
+                snapshot = snapshot.ready(result.entries, result.skippedLines, result.skippedSamples);
+                loadProgress.set(result.entries.size());
             }
-            if (timestamp != null && !e.timestampIso().equals(timestamp)) {
-                continue;
+        } catch (Throwable t) {
+            String message = (t.getMessage() != null) ? t.getMessage() : t.toString();
+            synchronized (loadLock) {
+                if (snapshot.generation() != generation) {
+                    return;
+                }
+                snapshot = snapshot.failed(message);
+                loadProgress.set(0);
             }
-            return e;
         }
-        return null;
+    }
+
+    /** 進捗を反映する（世代が一致する場合のみ。古いワーカーの値で上書きしない）。 */
+    private void publishProgress(long generation, long value) {
+        synchronized (loadLock) {
+            if (snapshot.generation() == generation) {
+                loadProgress.set(value);
+            }
+        }
     }
 
     // ---- 読み込み本体（並列パース + k-way マージ）--------------------------
