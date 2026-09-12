@@ -49,6 +49,18 @@
       クライアント IP
       <input id="host" placeholder="192.168 (XFF 含む)">
     </label>
+    <label>
+      全文検索
+      <input id="grep" placeholder="error">
+    </label>
+    <label>
+      ログファイル (正規表現)
+      <input id="source" placeholder="access_log">
+    </label>
+    <label>
+      表示件数
+      <input id="page-limit" type="number" min="1" max="5000" step="1" value="200">
+    </label>
     <div class="datetime-filter">
       <span class="field-label">期間 (JST)</span>
       <div class="datetime-range">
@@ -74,22 +86,10 @@
         <button type="button" id="range-last-24h" class="chip" disabled>末尾24時間</button>
         <button type="button" id="range-clear" class="chip">クリア</button>
       </div>
-      <p id="range-hint" class="range-hint"></p>
     </div>
-    <label>
-      全文検索
-      <input id="grep" placeholder="error">
-    </label>
-    <label>
-      ログファイル (正規表現)
-      <input id="source" placeholder="access_log">
-    </label>
-    <label>
-      表示件数
-      <input id="page-limit" type="number" min="1" max="5000" step="1" value="200">
-    </label>
     <button id="search">検索</button>
     <button id="reset" type="button">リセット</button>
+    <p id="range-hint" class="range-hint"></p>
   </section>
 
   <section class="toolbar">
@@ -98,6 +98,10 @@
       <label class="highlight-input">
         マッチ行をハイライト
         <input id="highlight" placeholder="含む文字列（表示のみ）">
+      </label>
+      <label class="toggle-input" title="ログファイル列を末尾 2 要素だけの表示とフルパス表示で切り替える">
+        <input type="checkbox" id="full-path">
+        フルパス表示
       </label>
     </div>
     <div class="pager">

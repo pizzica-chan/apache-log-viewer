@@ -38,6 +38,7 @@ const els = {
   rows: document.getElementById("rows"),
   resultCount: document.getElementById("result-count"),
   highlight: document.getElementById("highlight"),
+  fullPath: document.getElementById("full-path"),
   pageInfo: document.getElementById("page-info"),
   prev: document.getElementById("prev"),
   next: document.getElementById("next"),
@@ -452,6 +453,7 @@ function updateMeta(data) {
     metaRange = { first: null, last: null };
     els.meta.textContent = "ログファイル未読み込み — ディレクトリを選択してください";
     els.fileList.textContent = "";
+    els.fileList.title = "";
     updateParseWarning({});
     setBackgroundLoading(false);
     setLoadingUi(false);
@@ -463,6 +465,7 @@ function updateMeta(data) {
     metaRange = { first: null, last: null };
     els.meta.textContent = `読み込みエラー: ${data.load_error}`;
     els.fileList.textContent = data.files.join(" | ");
+    els.fileList.title = data.files.join("\n");
     updateParseWarning({});
     setBackgroundLoading(false);
     setLoadingUi(false);
@@ -475,6 +478,7 @@ function updateMeta(data) {
     const message = `ログを読み込み中... ${data.load_progress.toLocaleString()} 行`;
     els.meta.textContent = `${message} / ファイル ${data.files.length} 件`;
     els.fileList.textContent = data.files.join(" | ");
+    els.fileList.title = data.files.join("\n");
     updateParseWarning({});
     setBackgroundLoading(true, message);
     setLoadingUi(true);
@@ -487,6 +491,7 @@ function updateMeta(data) {
     `${data.total.toLocaleString()} 行 / ファイル ${data.files.length} 件` +
     (data.first ? ` / ${data.first} 〜 ${data.last}` : "");
   els.fileList.textContent = data.files.join(" | ");
+  els.fileList.title = data.files.join("\n");
   updateParseWarning(data);
   setBackgroundLoading(false);
   setLoadingUi(false);
@@ -577,6 +582,30 @@ async function fetchBrowseList(nextPath) {
   }
 }
 
+/**
+ * ログファイル列の表示文字列。既定は末尾 2 要素だけの短縮表示で、
+ * 「フルパス表示」を入れると絶対パスをそのまま出す。
+ */
+function sourceCellText(item) {
+  const path =
+    els.fullPath.checked && item.source ? item.source : formatSourceLabel(item.source);
+  return path + ":" + item.line_no;
+}
+
+/**
+ * ログファイル列だけを描き替える。検索をやり直さずに切り替えたいので
+ * 行は作り直さない。フルパスのときは列幅の上限を外す（body のクラスで CSS 側を切り替え）。
+ */
+function applySourceDisplay() {
+  document.body.classList.toggle("show-full-path", els.fullPath.checked);
+  const rows = els.rows.querySelectorAll("tr");
+  for (let i = 0; i < rows.length; i += 1) {
+    const item = lastPageItems[i];
+    const td = rows[i].querySelector("td.source");
+    if (item && td) td.textContent = sourceCellText(item);
+  }
+}
+
 function addCell(tr, content, options = {}) {
   const td = document.createElement("td");
   const text = content == null || content === "" ? "-" : String(content);
@@ -645,7 +674,7 @@ async function loadLogs() {
       addCell(tr, item.path, { className: "path", title: item.path });
       addCell(tr, item.client_host, { title: clientTitle });
       addCell(tr, item.host, { title: item.host });
-      addCell(tr, formatSourceLabel(item.source) + ":" + item.line_no, {
+      addCell(tr, sourceCellText(item), {
         className: "source",
         title: item.source + ":" + item.line_no,
       });
@@ -768,6 +797,9 @@ els.regexSamples.addEventListener("click", () => {
 });
 
 els.highlight.addEventListener("input", applyRowHighlights);
+els.fullPath.addEventListener("change", applySourceDisplay);
+// リロードでチェック状態が復元されることがあるので、初期表示でも body のクラスを合わせる
+applySourceDisplay();
 
 // 表示件数を変えるとページ位置が合わなくなるため、先頭ページから引き直す。
 // Enter で確定した場合は keydown 側が既に検索しているので、その分は読み飛ばす。
