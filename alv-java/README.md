@@ -64,6 +64,18 @@ java -jar alv-java.jar --dir C:\logs\apache --port 8769
 ## 対応ログ形式
 
 Apache Common / Combined Log Format。VirtualHost プレフィックスと X-Forwarded-For 付きにも対応。
+nginx の既定 combined は Apache と並びが同じためそのまま読める。
+
+書式は取り込み開始時に 1 つへ確定させる（`--format <id>`、省略時は先頭ファイルの冒頭から自動判定）。
+
+| 書式 | 用途 |
+|------|------|
+| `combined` | Apache / nginx の common・combined（既定） |
+| `nginx` | nginx の main 形式。末尾の `"$http_x_forwarded_for"` を実クライアントとして扱う |
+| `minimal` | ident / authuser を出力しない構成（`%h %t "%r" %>s %b`） |
+
+タイムスタンプは Apache 形式に加え ISO8601（nginx の `$time_iso8601` など）も書式を問わず読める。
+IIS の W3C 拡張ログ、HAProxy、Apache の error_log には対応していない。
 
 ```
 127.0.0.1 - - [20/Jun/2025:08:01:12 +0900] "GET /index.html HTTP/1.1" 200 4523

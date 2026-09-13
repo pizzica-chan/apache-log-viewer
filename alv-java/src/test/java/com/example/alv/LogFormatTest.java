@@ -139,6 +139,25 @@ class LogFormatTest {
         assertEquals(LogFormat.MINIMAL, detectOf(dir, "c.log", MINIMAL));
     }
 
+    /**
+     * nginx は combined の部分集合なので、末尾 XFF を持つ行が過半数のときだけ選ぶ。
+     * ちょうど半数のときは combined のままになる（境界の挙動を固定する）。
+     */
+    @Test
+    void detectionRequiresMajorityForNginx(@TempDir Path dir) throws IOException {
+        Path half = dir.resolve("half.log");
+        Files.write(half, Arrays.asList(NGINX_MAIN, COMBINED, NGINX_MAIN, COMBINED),
+                StandardCharsets.UTF_8);
+        assertEquals(LogFormat.COMBINED, LogFormat.detect(Collections.singletonList(half)),
+                "ちょうど半数では nginx を選ばない");
+
+        Path majority = dir.resolve("majority.log");
+        Files.write(majority, Arrays.asList(NGINX_MAIN, NGINX_MAIN, COMBINED),
+                StandardCharsets.UTF_8);
+        assertEquals(LogFormat.NGINX_MAIN, LogFormat.detect(Collections.singletonList(majority)),
+                "過半数なら nginx を選ぶ");
+    }
+
     @Test
     void detectionFallsBackToCombined(@TempDir Path dir) throws IOException {
         Path log = dir.resolve("none.log");

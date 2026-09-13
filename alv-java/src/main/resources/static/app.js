@@ -460,7 +460,10 @@ function updateParseWarning(data) {
   els.parseWarning.hidden = false;
   els.parseWarningDetails.open = false;
   els.parseWarningText.textContent =
-    `${skipped.toLocaleString()} 行を Apache Common/Combined 形式として解析できませんでした（一覧には表示されません）。`;
+    `${skipped.toLocaleString()} 行を` +
+    (data.log_format_name ? `「${data.log_format_name}」` : "") +
+    `として解析できませんでした（一覧には表示されません）。` +
+    (data.log_format_auto ? "書式が自動判定と違う場合は、ログディレクトリ欄で明示指定してください。" : "");
   els.parseWarningSamples.innerHTML = "";
   const samples = data.skipped_samples || [];
   for (const s of samples) {
