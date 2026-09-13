@@ -75,6 +75,29 @@ public final class LogStore {
         return loadProgress.get();
     }
 
+    /**
+     * 利用者が明示指定した書式。{@code null} なら読み込みのたびに自動判定する。
+     * 自動判定が外れたときに UI から上書きできるようにするための逃げ道。
+     */
+    private volatile LogFormat requestedFormat;
+    /** 直近の読み込みで実際に使った書式。画面に出すために保持する。 */
+    private volatile LogFormat resolvedFormat = LogFormat.COMBINED;
+
+    /** 書式を固定する。{@code null} で自動判定に戻す。 */
+    public void setRequestedFormat(LogFormat format) {
+        this.requestedFormat = format;
+    }
+
+    /** 自動判定かどうか（明示指定されていなければ true）。 */
+    public boolean isFormatAuto() {
+        return requestedFormat == null;
+    }
+
+    /** 直近の読み込みで実際に使った書式。 */
+    public LogFormat getResolvedFormat() {
+        return resolvedFormat;
+    }
+
     /** 読み込み対象を設定し、状態を idle にリセットする（世代を進める）。 */
     public void setSource(Path root, List<Path> paths) {
         List<Path> copy = (paths != null) ? new ArrayList<>(paths) : new ArrayList<Path>();
@@ -124,7 +147,12 @@ public final class LogStore {
     /** 読み込み本体。世代が一致する場合だけ結果を反映する。 */
     private void runLoad(final long generation, List<Path> paths) {
         try {
-            LoadResult result = loadEntries(paths, true, new LongConsumer() {
+            // 明示指定が無ければ先頭ファイルの冒頭から判定する。判定は読み込み開始時の 1 回だけで、
+            // 1 行あたりに試す正規表現は確定した 1 書式ぶんだけになる。
+            LogFormat requested = requestedFormat;
+            final LogFormat format = requested != null ? requested : LogFormat.detect(paths);
+            resolvedFormat = format;
+            LoadResult result = loadEntries(paths, true, format, new LongConsumer() {
                 @Override
                 public void accept(long value) {
                     publishProgress(generation, value);
@@ -201,15 +229,21 @@ public final class LogStore {
      *
      * @param progress 進捗（読み込み済み行数）コールバック。不要なら {@code null}
      */
+    /** 既定書式での読み込み（テスト・利便用）。 */
     public static LoadResult loadEntries(List<Path> paths, boolean sort, LongConsumer progress)
             throws IOException {
+        return loadEntries(paths, sort, LogFormat.COMBINED, progress);
+    }
+
+    public static LoadResult loadEntries(List<Path> paths, boolean sort, LogFormat format,
+            LongConsumer progress) throws IOException {
         if (paths.isEmpty()) {
             if (progress != null) {
                 progress.accept(0);
             }
             return new LoadResult(new ArrayList<LogEntry>(), 0, Collections.<SkippedLine>emptyList());
         }
-        ParseAggregate aggregate = parseParallel(paths, progress);
+        ParseAggregate aggregate = parseParallel(paths, format, progress);
         List<LogEntry> result;
         if (sort) {
             result = merge(aggregate.perFile);
@@ -237,8 +271,8 @@ public final class LogStore {
         }
     }
 
-    private static ParseAggregate parseParallel(List<Path> paths, LongConsumer progress)
-            throws IOException {
+    private static ParseAggregate parseParallel(List<Path> paths, LogFormat format,
+            LongConsumer progress) throws IOException {
         int n = paths.size();
         final List<List<LogEntry>> perFile = new ArrayList<>(Collections.<List<LogEntry>>nCopies(n, null));
         final AtomicLong counter = new AtomicLong();
@@ -253,7 +287,7 @@ public final class LogStore {
                 final Path path = paths.get(i);
                 futures.add(pool.submit(() -> {
                     try {
-                        perFile.set(fileId, parseFile(fileId, path, counter, skippedCounter,
+                        perFile.set(fileId, parseFile(fileId, path, format, counter, skippedCounter,
                                 skippedSamples, progress));
                     } catch (IOException e) {
                         throw new UncheckedIOException(e);
@@ -282,9 +316,9 @@ public final class LogStore {
                 new ArrayList<>(skippedSamples));
     }
 
-    private static List<LogEntry> parseFile(int fileId, Path path, AtomicLong counter,
-            AtomicLong skippedCounter, List<SkippedLine> skippedSamples, LongConsumer progress)
-            throws IOException {
+    private static List<LogEntry> parseFile(int fileId, Path path, LogFormat format,
+            AtomicLong counter, AtomicLong skippedCounter, List<SkippedLine> skippedSamples,
+            LongConsumer progress) throws IOException {
         List<LogEntry> out = new ArrayList<>();
         try (InputStream in = Files.newInputStream(path);
              ByteLineReader reader = new ByteLineReader(in)) {
@@ -295,7 +329,7 @@ public final class LogStore {
                     continue;
                 }
                 String line = new String(reader.lineBuf, 0, reader.lineLen, StandardCharsets.UTF_8);
-                LogEntry entry = LogParser.parseLine(line, fileId, lineNo, reader.lineStart);
+                LogEntry entry = LogParser.parseLine(format, line, fileId, lineNo, reader.lineStart);
                 if (entry != null) {
                     out.add(entry);
                     long c = counter.incrementAndGet();

@@ -31,17 +31,42 @@ public final class LogParser {
             + "(?<status>\\d+|-)\\s+"
             + "(?<bytes>\\S+)");
 
+    /**
+     * ident と authuser を出力しない構成（{@code %h %t "%r" %>s %b}）。
+     * {@link #LOG_RE} はこの 2 つを必須にしているため別の式が要る。
+     */
+    private static final Pattern MINIMAL_RE = Pattern.compile(
+            "^(?:\\S+:\\d+\\s+)?"
+            + "(?<leading>.+?)\\s+"
+            + "\\[(?<timestamp>[^\\]]+)\\]\\s+"
+            + "\"(?<request>[^\"]*)\"\\s+"
+            + "(?<status>\\d+|-)\\s+"
+            + "(?<bytes>\\S+)");
+
     private static final Pattern REQUEST_RE = Pattern.compile("^(\\S+)\\s+(\\S+)\\s+(\\S+)$");
+
+    /** 末尾の引用フィールドが XFF かどうかの判定に使う。IP・カンマ・空白だけを許す。 */
+    private static final Pattern XFF_LIKE = Pattern.compile("[0-9A-Fa-f.:, ]+");
 
     /** メソッド文字列は種類が限られるため intern してメモリを節約する。 */
     private static final ConcurrentHashMap<String, String> METHOD_POOL = new ConcurrentHashMap<>();
 
     /**
-     * 1 行を解析する。解析できない場合は {@code null}。
+     * 1 行を解析する。解析できない場合は {@code null}。既定書式（{@link LogFormat#COMBINED}）。
      */
     public static LogEntry parseLine(String raw, int fileId, int lineNo, long byteOffset) {
+        return parseLine(LogFormat.COMBINED, raw, fileId, lineNo, byteOffset);
+    }
+
+    /**
+     * 書式を指定して 1 行を解析する。解析できない場合は {@code null}。
+     *
+     * <p>書式は取り込み開始時に 1 つへ確定させる前提のため、1 行あたりに試す正規表現は 1 本だけ。
+     */
+    public static LogEntry parseLine(LogFormat fmt, String raw, int fileId, int lineNo,
+            long byteOffset) {
         String line = stripEol(raw);
-        Matcher m = LOG_RE.matcher(line);
+        Matcher m = (fmt == LogFormat.MINIMAL ? MINIMAL_RE : LOG_RE).matcher(line);
         if (!m.lookingAt()) {
             return null;
         }
@@ -52,6 +77,14 @@ public final class LogParser {
         String[] fh = splitLeadingHosts(m.group("leading"));
         String forwardedFor = fh[0];
         String host = fh[1];
+        if (fmt == LogFormat.NGINX_MAIN) {
+            // nginx の main 形式は XFF が行末の引用フィールドに来る。
+            // 取れなかった行（プロキシ経由でない等）は先頭側の判定をそのまま使う。
+            String trailing = trailingForwardedFor(line);
+            if (trailing != null) {
+                forwardedFor = trailing;
+            }
+        }
         String clientHost = clientHost(forwardedFor, host);
         // client と remote が同値なら参照を共有してメモリを節約する。
         if (clientHost.equals(host)) {
@@ -90,6 +123,41 @@ public final class LogParser {
     /** テスト用の簡易オーバーロード。 */
     public static LogEntry parseLine(String raw) {
         return parseLine(raw, 0, 0, 0);
+    }
+
+    /** テスト用の簡易オーバーロード（書式指定）。 */
+    public static LogEntry parseLine(LogFormat fmt, String raw) {
+        return parseLine(fmt, raw, 0, 0, 0);
+    }
+
+    /**
+     * 行末の引用フィールドから X-Forwarded-For を取り出す。nginx の {@code main} 形式で
+     * {@code "$http_user_agent" "$http_x_forwarded_for"} と並ぶ場合を想定する。
+     *
+     * <p>User-Agent を誤って拾わないよう、IP アドレスの並びに見えるものだけを返す。
+     * 値が {@code -}（プロキシ経由でない）や引用が見つからない場合は {@code null}。
+     */
+    static String trailingForwardedFor(String raw) {
+        String line = stripEol(raw);
+        int end = line.length() - 1;
+        while (end >= 0 && line.charAt(end) != '"') {
+            end--;
+        }
+        if (end < 1) {
+            return null;
+        }
+        int start = end - 1;
+        while (start >= 0 && line.charAt(start) != '"') {
+            start--;
+        }
+        if (start < 0) {
+            return null;
+        }
+        String value = line.substring(start + 1, end).trim();
+        if (value.isEmpty() || "-".equals(value)) {
+            return null;
+        }
+        return XFF_LIKE.matcher(value).matches() ? value : null;
     }
 
     /**

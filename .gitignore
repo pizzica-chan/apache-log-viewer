@@ -1,3 +1,6 @@
+# 計測用の生成ログなど（姉妹リポジトリと揃える）
+tmp/
+
 # Java / Maven
 alv-java/target/
 *.class

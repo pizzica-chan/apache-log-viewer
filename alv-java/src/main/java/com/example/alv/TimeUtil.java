@@ -30,6 +30,12 @@ public final class TimeUtil {
     public static long[] parseApacheTimestamp(String value) {
         try {
             String v = value.trim();
+            // nginx の $time_iso8601 など ISO8601 で出力する設定もあるため、そちらも受ける。
+            // Apache 形式は 2 文字目までに / が来るので取り違えない。
+            if (v.length() >= 19 && v.charAt(4) == '-' && v.charAt(7) == '-'
+                    && (v.charAt(10) == 'T' || v.charAt(10) == ' ')) {
+                return parseIso8601Timestamp(v);
+            }
             // タイムゾーン（[+-]HHMM）が無ければ UTC を補う。
             if (v.length() < 5 || (v.charAt(v.length() - 5) != '+' && v.charAt(v.length() - 5) != '-')) {
                 v = v + " +0000";
@@ -71,6 +77,54 @@ public final class TimeUtil {
         } catch (RuntimeException e) {
             return null;
         }
+    }
+
+    /**
+     * ISO8601 形式（{@code 2025-06-20T08:01:12+09:00} / {@code ...Z} / オフセット無し）を解析する。
+     *
+     * <p>nginx の {@code $time_iso8601} や、Apache の {@code %{%Y-%m-%dT%H:%M:%S%z}t} のような
+     * 独自指定で出力されるログ向け。オフセットが無い場合は UTC とみなす（Apache 形式と同じ扱い）。
+     *
+     * @return {@code [utcMillis, offsetMinutes]}。解析できない場合は {@code null}
+     */
+    private static long[] parseIso8601Timestamp(String v) {
+        int year = Integer.parseInt(v.substring(0, 4));
+        int month = Integer.parseInt(v.substring(5, 7));
+        int day = Integer.parseInt(v.substring(8, 10));
+        int hour = Integer.parseInt(v.substring(11, 13));
+        int min = Integer.parseInt(v.substring(14, 16));
+        int sec = Integer.parseInt(v.substring(17, 19));
+        if (!isValidDateTime(year, month, day, hour, min, sec)) {
+            return null;
+        }
+        int offsetMinutes = 0;
+        String tail = v.substring(19).trim();
+        // 秒未満（.123）が付く場合は読み飛ばす。表示は秒単位のため保持しない。
+        if (tail.startsWith(".")) {
+            int i = 1;
+            while (i < tail.length() && tail.charAt(i) >= '0' && tail.charAt(i) <= '9') {
+                i++;
+            }
+            tail = tail.substring(i);
+        }
+        if (!tail.isEmpty() && tail.charAt(0) != 'Z' && tail.charAt(0) != 'z') {
+            char sign = tail.charAt(0);
+            if (sign != '+' && sign != '-') {
+                return null;
+            }
+            String digits = tail.substring(1).replace(":", "");
+            if (digits.length() < 4) {
+                return null;
+            }
+            int offHour = Integer.parseInt(digits.substring(0, 2));
+            int offMin = Integer.parseInt(digits.substring(2, 4));
+            if (offHour < 0 || offHour > 23 || offMin < 0 || offMin > 59) {
+                return null;
+            }
+            offsetMinutes = (sign == '-' ? -1 : 1) * (offHour * 60 + offMin);
+        }
+        long localMillis = toMillis(year, month, day, hour, min, sec, 0);
+        return new long[] {localMillis - offsetMinutes * 60_000L, offsetMinutes};
     }
 
     /**

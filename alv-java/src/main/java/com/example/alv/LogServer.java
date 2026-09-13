@@ -58,6 +58,11 @@ public final class LogServer {
     private volatile ExecutorService executor;
 
     public LogServer(Path logRoot, List<Path> logPaths) {
+        this(logRoot, logPaths, null);
+    }
+
+    public LogServer(Path logRoot, List<Path> logPaths, LogFormat requestedFormat) {
+        store.setRequestedFormat(requestedFormat);
         store.setSource(logRoot, logPaths);
     }
 
@@ -179,6 +184,10 @@ public final class LogServer {
         payload.addProperty("total", total);
         payload.addProperty("first", entries.isEmpty() ? null : entries.get(0).timestampIso());
         payload.addProperty("last", entries.isEmpty() ? null : entries.get(entries.size() - 1).timestampIso());
+        LogFormat usedFormat = store.getResolvedFormat();
+        payload.addProperty("log_format", usedFormat.id());
+        payload.addProperty("log_format_name", usedFormat.displayName());
+        payload.addProperty("log_format_auto", store.isFormatAuto());
         if (!loading && snap.skippedLines() > 0) {
             payload.addProperty("skipped_lines", snap.skippedLines());
             JsonArray samples = new JsonArray();
@@ -249,10 +258,14 @@ public final class LogServer {
     private void handleLoad(HttpExchange ex) throws IOException {
         String body = readBody(ex);
         String directory = "";
+        String formatId = "";
         try {
             JsonObject obj = JsonParser.parseString(body).getAsJsonObject();
             if (obj.has("directory") && !obj.get("directory").isJsonNull()) {
                 directory = obj.get("directory").getAsString();
+            }
+            if (obj.has("format") && !obj.get("format").isJsonNull()) {
+                formatId = obj.get("format").getAsString();
             }
         } catch (RuntimeException e) {
             sendErrorJson(ex, 400, "JSON を解釈できません");
@@ -262,6 +275,16 @@ public final class LogServer {
             sendErrorJson(ex, 400, "directory を指定してください");
             return;
         }
+        // "auto"（または未指定）は自動判定。未知の id はエラーにして黙って既定へ落とさない。
+        LogFormat format = null;
+        if (!formatId.isEmpty() && !"auto".equals(formatId)) {
+            format = LogFormat.byId(formatId);
+            if (format == null) {
+                sendErrorJson(ex, 400, "未知のログ書式です: " + formatId);
+                return;
+            }
+        }
+        store.setRequestedFormat(format);
         Path root = PathUtil.resolve(directory);
         if (!Files.isDirectory(root)) {
             sendErrorJson(ex, 400, "ディレクトリが見つかりません: " + PathUtil.normalizePath(root));
