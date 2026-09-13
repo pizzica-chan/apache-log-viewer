@@ -50,13 +50,15 @@ java -jar alv-java.jar --dir C:\logs\apache --port 8769
 | `--dir`  | 起動時に読み込むログディレクトリ（省略時は UI から選択） | — |
 | `--host` | 待ち受けアドレス | `127.0.0.1` |
 | `--port` | 待ち受けポート | `8769` |
+| `--format` | ログ書式を固定する（`auto` / `combined` / `nginx` / `minimal`） | `auto`（自動判定） |
 
 ## HTTP API
 
 - `GET /` — Web UI
 - `GET /api/meta` — 読み込み状態・件数・期間
 - `GET /api/browse?path=` — ディレクトリ一覧
-- `POST /api/load` — `{"directory": "..."}` を受け取り読み込み開始
+- `POST /api/load` — `{"directory": "...", "format": "auto"}` を受け取り読み込み開始
+  - `format` は省略可（既定は `auto` で自動判定）。`combined` / `nginx` / `minimal` を指定すると書式を固定する。未知の値は 400
 - `GET /api/logs?status=&path=&method=&host=&grep=&source=&since=&until=&limit=&offset=` — フィルタ付き一覧
   - `since` / `until` は `yyyy-MM-dd[ HH:mm[:ss]]`（`T` 区切りも可）。**ログに記録された現地時刻（壁時計）** として解釈し、タイムゾーン指定は受け付けない
 - `GET /api/logs/detail?source=&line_no=&timestamp=` — 生ログ行
