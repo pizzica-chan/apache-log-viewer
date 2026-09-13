@@ -161,7 +161,40 @@ LogFormat `%{X-Forwarded-For}i %h %l %u %t "%r" %>s %b "%{Referer}i" "%{User-Age
 203.0.113.51, 198.51.100.10 10.0.0.5 - - [20/Jun/2025:07:56:30 +0900] "POST /api/login HTTP/1.1" 401 128 "-" "curl/8.0"
 ```
 
+### nginx
+
+nginx の既定 `combined` は Apache と並びが同じため、そのまま読めます。
+`main` 形式（末尾に `"$http_x_forwarded_for"` が付く並び）は書式 `nginx` を選ぶと、
+**末尾の X-Forwarded-For を実クライアント**として Client 列に出します。
+既定書式のままだと末尾を読まないため、プロキシ経由では Client にプロキシの IP が出ます。
+
+```
+10.0.0.5 - - [20/Jun/2025:08:01:12 +0900] "GET /api/users HTTP/1.1" 200 1024 "-" "Mozilla/5.0" "203.0.113.50"
+```
+
+### ident / authuser が無い構成
+
+`%h %t "%r" %>s %b` のように ident と authuser を出力しない構成は、書式 `minimal` で読めます。
+
+```
+127.0.0.1 [20/Jun/2025:08:01:12 +0900] "GET /index.html HTTP/1.1" 200 4523
+```
+
+### タイムスタンプ
+
+Apache の `dd/MMM/yyyy:HH:mm:ss ±HHMM` に加え、ISO8601（nginx の `$time_iso8601` や
+Apache の `%{%Y-%m-%dT%H:%M:%S%z}t` など）も書式を問わず読めます。
+
+### 書式の決め方
+
+既定は自動判定で、先頭ファイルの冒頭 500 行をサンプリングします。`nginx` は `combined` の
+部分集合にあたるため、末尾に X-Forwarded-For を持つ行が過半数のときだけ選びます。
+判定結果は画面の概要行に出ます。外れた場合はログディレクトリ欄のセレクトで
+明示指定できます（CLI は `--format <id>`）。同時に読み込むファイルはすべて
+同じ書式である前提です。
+
 解析できない行はスキップされます（エラーにはしません）。
+IIS の W3C 拡張ログ、HAProxy のログ、Apache の error_log には対応していません。
 
 ## 障害調査の例
 
