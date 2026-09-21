@@ -742,7 +742,12 @@ function renderSavedSearchList() {
     applyBtn.addEventListener("click", () => {
       applyFilterFields(saved.fields);
       els.savedSearchesDialog.close();
+      // 欄を入れるだけなので、表には前の条件の結果が残る。そのまま「次へ」を押すと
+      // 新しい条件の 2 ページ目から読んでしまうため、ページャは止めておく。
+      // 「検索」を押した時点で offset ごと組み直す。
       offset = 0;
+      els.prev.disabled = true;
+      els.next.disabled = true;
     });
     const deleteBtn = document.createElement("button");
     deleteBtn.type = "button";
@@ -809,9 +814,10 @@ function formatSourceLabel(source) {
 }
 
 async function loadLogs() {
-  // 検索条件を変える経路（リセット・保存済み条件の適用・詳細ダイアログの絞り込み・
-  // 統計からの絞り込み）はすべてここを通る。呼び出し側を数え上げると漏れるので、
-  // 件数表示の更新はこの 1 箇所に集約する。
+  // 検索を実行する経路（リセット・詳細ダイアログの絞り込み・統計からの絞り込み）は
+  // すべてここを通る。呼び出し側を数え上げると漏れるので、件数表示の更新は
+  // この 1 箇所に集約する。保存した条件の適用だけは検索を走らせないため、
+  // applyFilterFields 側で同じ更新を行う。
   updateFiltersSummary();
   appliedLimit = getLimit();
   const seq = ++logsRequestSeq;
