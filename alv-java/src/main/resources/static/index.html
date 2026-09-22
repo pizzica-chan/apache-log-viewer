@@ -356,6 +356,10 @@
               <td><code>203.0.113.5 - - [15/Jun/2026:08:01:12 +0900] "GET /a/b HTTP/1.1" 200 123</code></td>
             </tr>
             <tr>
+              <th>書き写す</th>
+              <td><code>^203.0.113.5 - - [15/Jun/2026:08:01:12 +0900] "GET /a/b HTTP/1.1" 200 123$</code></td>
+            </tr>
+            <tr>
               <th>置き換え例</th>
               <td><code>^(?&lt;client&gt;\S+) \S+ \S+ \[(?&lt;ts&gt;[^\]]+)\] "(?&lt;method&gt;\S+) (?&lt;path&gt;\S+)[^"]*" (?&lt;status&gt;\d+|-) .*$</code></td>
             </tr>
@@ -533,8 +537,8 @@
                     title="一覧の Remote 列（接続元）。省くと client と同じ値">Remote（接続元）</button>
             <button type="button" class="log-format-part" data-insert="(?&lt;xff&gt;\S+)"
                     title="X-Forwarded-For。絞り込みとツールチップに使う。Client 列には出ない">X-Forwarded-For</button>
-            <button type="button" class="log-format-part" data-insert="(?&lt;client&gt;[^,\s]+)"
-                    title="カンマで連なる X-Forwarded-For から先頭だけを取り、Client 列に出す">アクセス元（XFF の先頭）</button>
+            <button type="button" class="log-format-part" data-insert="(?&lt;client&gt;[^,\s]+).*"
+                    title="カンマで連なる X-Forwarded-For から先頭だけを取り、Client 列に出す。残りは .* で受け流す">アクセス元（XFF の先頭）</button>
           </div>
 
           <p class="log-format-guide-subhead">つなぎ・そのほか</p>
@@ -659,7 +663,9 @@
           <ul>
             <li>
               <span class="log-format-li-title">1 エントリが 2 行以上になる形式</span>
-              一致しなかった行は読み飛ばし、件数と例を画面に出します。
+              alv に継続行の考え方はありません。一致しなかった行は読み飛ばし、
+              件数と例を画面に出します。<strong>2 行目は一覧に出ません。</strong>
+              1 行目だけで項目がそろう形式にしてください。
             </li>
             <li>
               <span class="log-format-li-title"><code>(a+)+</code> のように繰り返しを入れ子にした書き方</span>
