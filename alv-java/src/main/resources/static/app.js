@@ -459,7 +459,7 @@ function updateParseWarning(data) {
   els.parseWarning.hidden = false;
   els.parseWarningDetails.open = false;
   // 利用者定義の書式では、直す先は自分の書いた正規表現。組み込みのときの
-  // 「明示指定してください」は当てはまらないので、案内を書き分ける。
+  // 「明示指定してください」はここには該当しないので、案内を書き分ける。
   els.parseWarningText.textContent =
     `${skipped.toLocaleString()} 行を` +
     (data.log_format_name ? `「${data.log_format_name}」` : "") +
