@@ -461,17 +461,27 @@
             </tr>
             <tr>
               <td>末尾 <code>"203.0.113.5, 10.0.0.1"</code></td>
-              <td>引用内を <code>(?&lt;client&gt;\S+)</code> で 1 トークン丸ごと</td>
+              <td>引用内を <code>(?&lt;client&gt;[^"]*)</code> で丸ごと</td>
               <td><code>203.0.113.5, 10.0.0.1</code></td>
               <td>（<code>host</code> の指定次第）</td>
               <td>（空）</td>
             </tr>
             <tr>
               <td>同上</td>
-              <td>引用内を <code>(?&lt;client&gt;[^,\s]+)</code></td>
+              <td>引用内を <code>(?&lt;client&gt;[^,\s]+).*</code>（先頭の IP だけ取り、残りは受け流す）</td>
               <td><code>203.0.113.5</code></td>
               <td>（<code>host</code> の指定次第）</td>
               <td>（空）</td>
+            </tr>
+            <tr>
+              <td>同上</td>
+              <td>引用内を <code>(?&lt;client&gt;\S+)</code></td>
+              <td colspan="3">
+                <span class="log-format-table-note">
+                  行に一致せず読み飛ばされます。<code>\S+</code> は空白で止まるため、
+                  カンマの後ろに空白がある値は最後まで取れません
+                </span>
+              </td>
             </tr>
           </table>
           <p class="log-format-callout">

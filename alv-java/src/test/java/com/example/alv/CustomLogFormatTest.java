@@ -160,6 +160,39 @@ class CustomLogFormatTest {
         }
     }
 
+    /**
+     * ガイドの「IP 例」表が言うとおりに Client 列へ入ること。
+     *
+     * <p>カンマで連なる X-Forwarded-For の取り方は、ここを間違えると
+     * <strong>Client 列にプロキシの IP が出続ける</strong>という、気づきにくい外し方になる。
+     * とくに {@code \S+} は空白で止まるので、{@code 203.0.113.5, 10.0.0.1} のように
+     * カンマの後ろに空白がある値は最後まで取れない（表にもそう書いてある）。
+     */
+    @Test
+    void commaSeparatedForwardedForBehavesAsTheGuideSays() {
+        String line = "10.0.0.5 - - [15/Jun/2026:08:01:12 +0900] \"GET /a HTTP/1.1\" 200 1 "
+                + "\"-\" \"curl/8.0\" \"203.0.113.5, 10.0.0.1\"";
+        String head = "^\\S+ \\S+ \\S+ \\[(?<ts>[^\\]]+)\\] \"[^\"]*\" (?<status>\\d+) \\S+ "
+                + "\"[^\"]*\" \"[^\"]*\" \"";
+
+        // 丸ごと取ると、カンマごとそのまま Client 列に出る（切り捨てはしない）
+        LogEntry whole = parse(new CustomLogFormat("w", "w",
+                head + "(?<client>[^\"]*)\"$", TS), line);
+        assertNotNull(whole);
+        assertEquals("203.0.113.5, 10.0.0.1", whole.clientHost);
+
+        // 先頭の IP だけ取るなら、残りは受け流す
+        LogEntry first = parse(new CustomLogFormat("f", "f",
+                head + "(?<client>[^,\\s]+).*\"$", TS), line);
+        assertNotNull(first);
+        assertEquals("203.0.113.5", first.clientHost);
+
+        // \S+ は空白で止まるので、この値では行ごと一致しない
+        assertNull(parse(new CustomLogFormat("s", "s",
+                head + "(?<client>\\S+)\"$", TS), line),
+                "\\S+ では引用の終わりまで届かない");
+    }
+
     /** host と xff を取る書式では、それぞれ別に入ること。 */
     @Test
     void takesHostAndForwardedFor() {
