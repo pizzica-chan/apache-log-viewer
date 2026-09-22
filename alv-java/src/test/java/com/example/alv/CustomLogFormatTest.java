@@ -3,6 +3,7 @@ package com.example.alv;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -48,6 +49,8 @@ class CustomLogFormatTest {
         assertEquals("GET", e.method);
         assertEquals("/a/b?x=1", e.path);
         assertEquals(200, e.status);
+        LogEntry again = parse(format(), LINE);
+        assertSame(e.method, again.method, "メソッド文字列は行ごとに複製しない");
     }
 
     /**
@@ -86,6 +89,33 @@ class CustomLogFormatTest {
                 "ログに書かれた時刻がそのまま出る");
     }
 
+    /**
+     * 秒未満は読めても保持しないこと（組み込み書式と同じ）。
+     *
+     * <p>画面の時刻は秒で切って出る。ミリ秒を残すと、<strong>画面に出ている最後の時刻を
+     * そのまま期間の上限にしたとき、その行自身が結果から消える</strong>
+     * （上限は秒の {@code .000}、行は {@code .345} で、比較は {@code wall > until}）。
+     * 開始と終了を同じ秒にすると、その秒の行が 0 件になる。
+     */
+    @Test
+    void dropsSubSecondLikeBuiltinFormats() {
+        CustomLogFormat f = new CustomLogFormat("ms", "ミリ秒あり",
+                "^(?<client>\\S+) \\[(?<ts>[^\\]]+)\\] (?<status>\\d+)$",
+                "dd/MMM/yyyy:HH:mm:ss.SSS Z");
+        LogEntry e = parse(f, "203.0.113.5 [15/Jun/2026:08:01:12.345 +0900] 200");
+        assertNotNull(e, ".SSS の桁がある行は読める");
+        assertEquals(0, e.tsMillis % 1000, "秒未満は残さない");
+        assertEquals("2026-06-15T08:01:12+09:00", e.timestampIso());
+
+        // 画面に出ている秒をそのまま期間の上限にしても、その行は残る
+        long until = TimeUtil.parseUiWallClockMillis("2026-06-15 08:01:12");
+        assertTrue(e.wallMillis() <= until,
+                "表示と同じ秒を上限にしたとき、その行が範囲から外れない");
+
+        // 桁が書かれていない行は、この書式では読めない（.SSS は形の検査として効く）
+        assertNull(parse(f, "203.0.113.5 [15/Jun/2026:08:01:12 +0900] 200"));
+    }
+
     /** 任意グループが無い書式でも使えて、欠けた項目は既定値になること。 */
     @Test
     void optionalGroupsFallBack() {
@@ -99,6 +129,35 @@ class CustomLogFormatTest {
         assertEquals("-", e.method);
         assertEquals("-", e.path);
         assertEquals(404, e.status);
+    }
+
+    /**
+     * ガイドの日時の部品が、正規表現と日時書式の組で成り立っていること。
+     *
+     * <p>部品は正規表現と日時書式を同時に入れる。片方だけ直すと、押しただけでは
+     * 動かないボタンになる。とくに ISO のオフセットは、コロンの有無で日時書式が
+     * {@code XXX} と {@code XX} に分かれる。
+     */
+    @Test
+    void timestampPartsMatchTheirRegex() {
+        String[][] cases = {
+            {"\\[(?<ts>[^\\]]+)\\]", "dd/MMM/yyyy:HH:mm:ss Z",
+                "[15/Jun/2026:08:01:12 +0900]"},
+            {"\\[(?<ts>[^\\]]+)\\]", "dd/MMM/yyyy:HH:mm:ss.SSS Z",
+                "[15/Jun/2026:08:01:12.345 +0900]"},
+            {"(?<ts>\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}[+-]\\d{2}:\\d{2})",
+                "yyyy-MM-dd'T'HH:mm:ssXXX", "2026-06-15T08:01:12+09:00"},
+            {"(?<ts>\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}[+-]\\d{4})",
+                "yyyy-MM-dd'T'HH:mm:ssXX", "2026-06-15T08:01:12+0900"},
+            {"(?<ts>\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2})",
+                "yyyy-MM-dd HH:mm:ss", "2026-06-15 08:01:12"},
+        };
+        for (String[] c : cases) {
+            CustomLogFormat f = new CustomLogFormat("part", "part",
+                    "^(?<client>\\S+) " + c[0] + " (?<status>\\d+)$", c[1]);
+            assertNotNull(parse(f, "203.0.113.5 " + c[2] + " 200"),
+                    c[0] + " と " + c[1] + " の組で「" + c[2] + "」を読めること");
+        }
     }
 
     /** host と xff を取る書式では、それぞれ別に入ること。 */
@@ -176,7 +235,7 @@ class CustomLogFormatTest {
     /**
      * 日時書式を書く前でも、正規表現だけで取り出せた項目を見られること。
      *
-     * <p>利用者はふつう、ログの行を貼って正規表現を組み立て、当たることを確かめてから
+     * <p>利用者はふつう、ログの行を貼って正規表現を組み立て、一致することを確かめてから
      * 日時書式を書く。試し打ちで日時書式を必須にすると、その最初の一歩が止まる。
      */
     @Test
@@ -203,6 +262,8 @@ class CustomLogFormatTest {
             {"dd/MMM/yyyy:HH:mm:ss Z", "15/Jun/2026:08:01:12 +0900"},
             {"dd/MMM/yyyy:HH:mm:ss", "15/Jun/2026:08:01:12"},
             {"yyyy-MM-dd'T'HH:mm:ssXXX", "2026-06-15T08:01:12+09:00"},
+            // Apache の %z はコロンが入らない。XXX では読めないので別のボタンにしている
+            {"yyyy-MM-dd'T'HH:mm:ssXX", "2026-06-15T08:01:12+0900"},
             {"yyyy-MM-dd'T'HH:mm:ss", "2026-06-15T08:01:12"},
             {"yyyy-MM-dd HH:mm:ss", "2026-06-15 08:01:12"},
             {"dd/MMM/yyyy:HH:mm:ss.SSS Z", "15/Jun/2026:08:01:12.345 +0900"},

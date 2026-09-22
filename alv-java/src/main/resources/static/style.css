@@ -116,7 +116,7 @@ header h1 {
   gap: 0.5rem;
 }
 
-/* 書式セレクト。input と同じ見た目に揃える（select には input の指定が当たらない） */
+/* 書式セレクト。input と同じ見た目に揃える（select には input の指定が適用されない） */
 #log-format {
   flex: 0 0 auto;
   padding: 0.35rem 0.5rem;
@@ -1023,7 +1023,7 @@ dialog pre {
   color: var(--muted);
 }
 
-/* aplv/mlv では保存条件ダイアログが持っている行。alv には無いのでここで足す */
+/* aplv/mlv では保存条件ダイアログが持っている行。alv にはないのでここで足す */
 .saved-search-file-hint {
   margin: 0 0 0.75rem;
   color: var(--muted);

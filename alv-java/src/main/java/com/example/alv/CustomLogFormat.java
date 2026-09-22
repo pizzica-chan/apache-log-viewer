@@ -28,20 +28,28 @@ import java.util.regex.PatternSyntaxException;
  * combined を正規表現で書き直した利用者定義書式で読み比べた。件数は 1,000,000 件、
  * 読み飛ばし 0 件で一致）。<strong>この重さを払うのは、この書式を選んだ読み込みだけ</strong>で、
  * 組み込み書式の経路は変わらない（同じ測定で 1,854ms → 1,857ms。
- * 1,773〜2,032ms のばらつきの中なので差は無い）。
+ * 1,773〜2,032ms のばらつきの中なので差はない）。
  *
  * <h2>取り出す項目</h2>
  * <p>画面の絞り込みと集計は {@link LogEntry} の項目の上に建っているので、取り出す項目も
  * そこへ揃える。<strong>必須は {@code ts} / {@code client} / {@code status} の 3 つ</strong>。
  * この 3 つが欠けると、一覧・期間・ステータスの絞り込みがどれも成り立たない。
  * {@code method} / {@code path} / {@code host} / {@code xff} は任意で、
- * 無ければ {@code method} と {@code path} は {@code -}、{@code host} は {@code client} と
+ * なければ {@code method} と {@code path} は {@code -}、{@code host} は {@code client} と
  * 同じ値、{@code xff} は空になる。
+ * {@code client} が一覧の Client 列、{@code host} が Remote 列です。
+ * {@code xff} は絞り込みとツールチップにだけ使い、Client 列は置き換えません
+ * （組み込みの nginx 書式が末尾の X-Forwarded-For を Client 列へ載せるのとは違います）。
+ * プロキシ経由の実クライアントを一覧に出すときは、その値を {@code client} に取ります。
  *
  * <h2>時刻とタイムゾーン</h2>
- * <p>日時書式にオフセット（{@code Z} や {@code XXX}）があればそれを使い、無ければ
- * <strong>UTC とみなす</strong>。組み込み書式がオフセットの無いログを
- * {@code +0000} として扱うのと同じで、画面にはログに書かれたままの時刻が出る。
+ * <p>日時書式にオフセットがあればそれを使い、なければ
+ * <strong>UTC とみなす</strong>。{@code +0900} は {@code Z} または {@code XX}、
+ * コロン付きの {@code +09:00} は {@code XXX} です。組み込み書式がオフセットのないログを
+ * {@code +0000} として扱うのと同じで、画面にはログに書かれたままの時刻が出ます。
+ * 秒未満（{@code SSS} など）は、その桁が書いてあることの検査にだけ使い、
+ * 保存する時刻は秒で切ります。画面の時刻表示も秒までなので、ミリ秒を残すと
+ * 表示されている時刻を期間の上限にしたときにその行が範囲から外れます。
  *
  * <h2>暴走する正規表現への備え</h2>
  * <p>利用者が書いた正規表現は、入れ子の量指定子などで後戻りが爆発しうる。Java の
@@ -101,9 +109,9 @@ public final class CustomLogFormat {
             throw new IllegalArgumentException("timestamp の日時書式が不正です: " + e.getMessage(), e);
         }
         Set<String> groups = groupNames(patternText);
-        requireGroup(groups, GROUP_TS, "時刻が無いと並べ替えも期間の絞り込みもできません");
-        requireGroup(groups, GROUP_CLIENT, "アクセス元が無いと誰のリクエストか分かりません");
-        requireGroup(groups, GROUP_STATUS, "ステータスが無いと絞り込みが常に空振りします");
+        requireGroup(groups, GROUP_TS, "時刻がないと並べ替えも期間の絞り込みもできません");
+        requireGroup(groups, GROUP_CLIENT, "アクセス元がないと誰のリクエストか分かりません");
+        requireGroup(groups, GROUP_STATUS, "ステータスがないと絞り込みが常に空振りします");
         this.hasMethod = groups.contains("method");
         this.hasPath = groups.contains("path");
         this.hasHost = groups.contains("host");
@@ -290,7 +298,7 @@ public final class CustomLogFormat {
         }
         return new LogEntry(fileId, lineNo, byteOffset, parsed[0], (int) parsed[1],
                 host, client, group(m, hasXff, "xff", ""),
-                group(m, hasMethod, "method", NO_VALUE),
+                LogParser.internMethod(group(m, hasMethod, "method", NO_VALUE)),
                 group(m, hasPath, "path", NO_VALUE),
                 parseStatus(m.group(GROUP_STATUS)));
     }
@@ -393,11 +401,15 @@ public final class CustomLogFormat {
             }
             int offsetMinutes = ta.isSupported(ChronoField.OFFSET_SECONDS)
                     ? ta.get(ChronoField.OFFSET_SECONDS) / 60 : 0;
+            // 秒未満は読めても保持しない（組み込み書式と同じ）。画面の時刻は
+            // TimeUtil#formatIsoOffset が秒で切るので、ミリ秒を残すと
+            // 「画面に出ている最後の時刻をそのまま期間の上限にすると、その行自身が
+            // 結果から消える」という食い違いになる。日時書式の .SSS は
+            // 「その桁が書いてあること」の検査として残す。
             long localMillis = TimeUtil.toMillis(year, month, day,
                     field(ta, ChronoField.HOUR_OF_DAY, 0),
                     field(ta, ChronoField.MINUTE_OF_HOUR, 0),
-                    field(ta, ChronoField.SECOND_OF_MINUTE, 0),
-                    field(ta, ChronoField.MILLI_OF_SECOND, 0));
+                    field(ta, ChronoField.SECOND_OF_MINUTE, 0), 0);
             return new long[] {localMillis - offsetMinutes * 60_000L, offsetMinutes};
         } catch (DateTimeException e) {
             return null;
@@ -470,7 +482,7 @@ public final class CustomLogFormat {
         if (!ta.isSupported(ChronoField.YEAR) || !ta.isSupported(ChronoField.MONTH_OF_YEAR)
                 || !ta.isSupported(ChronoField.DAY_OF_MONTH)) {
             return "日時書式「" + timestampPattern + "」に年月日が揃っていません"
-                    + "（日付が無いと日をまたいで並べられません）";
+                    + "（日付がないと日をまたいで並べられません）";
         }
         if (wasAdjusted(ta, text)) {
             return "実在しない日時です（" + resolvedText(ta) + "に寄せられます）";

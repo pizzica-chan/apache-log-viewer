@@ -199,7 +199,8 @@ public final class LogParser {
         return host;
     }
 
-    private static String internMethod(String method) {
+    /** メソッド文字列は種類が限られるので、組み込みと利用者定義で同じプールを共有する。 */
+    static String internMethod(String method) {
         String existing = METHOD_POOL.putIfAbsent(method, method);
         return existing != null ? existing : method;
     }

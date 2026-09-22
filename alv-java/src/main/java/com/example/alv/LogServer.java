@@ -343,11 +343,11 @@ public final class LogServer {
     /**
      * 書式をサンプル 1 行で試す。<strong>保存はしない。</strong>
      *
-     * <p>正規表現は書いてすぐ当たることのほうが少ない。保存してから取り込み直して
-     * 確かめる往復をなくすため、その場で結果（取り出せた項目、または当たらない理由）を返す。
+     * <p>正規表現は書いてすぐ一致することのほうが少ない。保存してから取り込み直して
+     * 確かめる往復をなくすため、その場で結果（取り出せた項目、または一致しない理由）を返す。
      *
      * <p><strong>日時書式はまだ空でもよい。</strong>利用者はふつう、ログの行を貼って
-     * 正規表現を組み立て、当たることを確かめてから日時書式を書く。そこで日時書式を
+     * 正規表現を組み立て、一致することを確かめてから日時書式を書く。そこで日時書式を
      * 必須にすると、いちばん最初の試し打ちが「日時書式を入れてください」で止まる。
      * 空のときは正規表現だけを見て、{@code ts} に取れた文字列をそのまま返す。
      */
@@ -422,11 +422,11 @@ public final class LogServer {
     }
 
     /**
-     * 当たらなかった理由を、直せる粒度で返す。
+     * 一致しなかった理由を、直せる粒度で返す。
      * 「一致しない」と「日時を読めない」は直す場所が違うので、必ず区別する。
      */
     private static final String NO_MATCH_REASON =
-            "正規表現がこの行に一致しません。行全体（^ から $ まで）に当たる形になっているか確かめてください";
+            "正規表現がこの行に一致しません。行全体（^ から $ まで）に一致する形になっているか確かめてください";
 
     /** 日時書式がまだ空のときの結果。日時は「取れた文字列」のまま返す。 */
     private static void addMatchedGroups(JsonObject payload, CustomLogFormat format,
@@ -447,7 +447,7 @@ public final class LogServer {
                 + (why != null ? why : "日時書式「" + format.timestampPattern() + "」を見直してください");
     }
 
-    /** 試し打ちの失敗文に出す呼び名。id を入れていればそれ、無ければ日本語の呼び名。 */
+    /** 試し打ちの失敗文に出す呼び名。id を入れていればそれ、なければ日本語の呼び名。 */
     private static String tryLabel(String id) {
         String trimmed = id != null ? id.trim() : "";
         return trimmed.isEmpty() ? "いま入力中のもの" : trimmed;
@@ -462,7 +462,7 @@ public final class LogServer {
         return o;
     }
 
-    /** JSON の文字列フィールド。無い・null なら null。文字列以外は 400 相当の例外。 */
+    /** JSON の文字列フィールド。ない・null なら null。文字列以外は 400 相当の例外。 */
     private static String jsonString(JsonObject obj, String key) {
         if (!obj.has(key) || obj.get(key).isJsonNull()) {
             return null;
@@ -474,7 +474,7 @@ public final class LogServer {
         return value.getAsJsonPrimitive().getAsString();
     }
 
-    /** 無い・null を空文字に均す。「入れてください」と言えるようにするため。 */
+    /** ない・null を空文字に均す。「入れてください」と言えるようにするため。 */
     private static String orEmpty(String value) {
         return value != null ? value : "";
     }

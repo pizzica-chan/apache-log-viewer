@@ -139,7 +139,7 @@ class FiltersTest {
         f.untilWallMillis = TimeUtil.parseUiWallClockMillis("2000-10-10 13:56:36");
         assertTrue(f.matches(e, "access_log", null));
 
-        // 範囲を外せば当たらない。
+        // 範囲を外せば一致しない。
         f.sinceWallMillis = TimeUtil.parseUiWallClockMillis("2000-10-10 14:00:00");
         f.untilWallMillis = TimeUtil.parseUiWallClockMillis("2000-10-10 15:00:00");
         assertFalse(f.matches(e, "access_log", null));

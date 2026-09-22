@@ -30,7 +30,7 @@
           <option value="nginx">書式: nginx main（末尾の X-Forwarded-For を使う）</option>
           <option value="minimal">書式: ident/authuser なし</option>
         </select>
-        <button id="manage-formats" type="button" title="組み込み書式に無いログを読むための書式を、自分で登録・編集できます">書式の管理...</button>
+        <button id="manage-formats" type="button" title="組み込み書式にないログを読むための書式を、自分で登録・編集できます">書式の管理...</button>
         <button id="browse" type="button">参照...</button>
         <button id="load-dir" type="button">読み込み</button>
       </div>
@@ -168,7 +168,7 @@
       <div class="detail-actions">
         <button type="button" id="detail-search-around-1">前後1分間のログを検索</button>
         <button type="button" id="detail-search-around-5">前後5分間のログを検索</button>
-        <button type="button" id="detail-filter-ip">このIPアドレスで絞込み</button>
+        <button type="button" id="detail-filter-ip">このIPアドレスで絞り込み</button>
         <button type="submit">閉じる</button>
       </div>
     </form>
@@ -342,7 +342,7 @@
           <h4>考え方</h4>
           <p>
             読みたいログの 1 行をそのまま書き写し、<strong>行ごとに変わるところだけを
-            「部品」に置き換える</strong>。これだけです。置き換えた部品に名前を付けると、
+            「部品」に置き換えてください</strong>。これだけです。置き換えた部品に名前を付けると、
             その中身が一覧の列になります。
           </p>
           <table class="log-format-guide-table">
@@ -351,7 +351,7 @@
               <td><code>203.0.113.5 - - [15/Jun/2026:08:01:12 +0900] "GET /a/b HTTP/1.1" 200 123</code></td>
             </tr>
             <tr>
-              <th>置き換える</th>
+              <th>置き換え例</th>
               <td><code>^(?&lt;client&gt;\S+) \S+ \S+ \[(?&lt;ts&gt;[^\]]+)\] "(?&lt;method&gt;\S+) (?&lt;path&gt;\S+)[^"]*" (?&lt;status&gt;\d+|-) .*$</code></td>
             </tr>
           </table>
@@ -362,16 +362,27 @@
           </p>
           <table class="log-format-guide-table">
             <tr><th><code>ts</code></th><td>必須。日付まで含めること</td></tr>
-            <tr><th><code>client</code></th><td>必須。アクセス元。ホスト欄の絞り込みに使う</td></tr>
+            <tr><th><code>client</code></th><td>必須。一覧の <strong>Client 列</strong>に出る。プロキシ経由なら実クライアントをここ（<code>client</code>）へ取る</td></tr>
             <tr><th><code>status</code></th><td>必須。<code>-</code> なら「記録なし」として扱う</td></tr>
             <tr><th><code>method</code></th><td>任意。省くと <code>-</code></td></tr>
             <tr><th><code>path</code></th><td>任意。省くと <code>-</code></td></tr>
-            <tr><th><code>host</code></th><td>任意。省くと <code>client</code> と同じ値</td></tr>
-            <tr><th><code>xff</code></th><td>任意。X-Forwarded-For。省くと空</td></tr>
+            <tr><th><code>host</code></th><td>任意。一覧の <strong>Remote 列</strong>（接続元）。省くと <code>client</code> と同じ値</td></tr>
+            <tr><th><code>xff</code></th><td>任意。X-Forwarded-For。Client 列には出ない（絞り込みとツールチップに使う）</td></tr>
           </table>
           <p>
+            <strong>プロキシ経由のログで実クライアントを一覧に出したいときは、
+            その値を <code>client</code> に取ってください。</strong>
+            <code>xff</code> に取っても Client 列はプロキシのままです
+            （組み込みの <code>nginx</code> 書式は末尾の X-Forwarded-For を Client 列へ
+            載せますが、利用者定義ではどの値を Client にするかを自分で決めます）。
+            X-Forwarded-For が <code>203.0.113.5, 10.0.0.1</code> のようにカンマで
+            連なるときは、<strong>先頭だけを取る</strong>書き方
+            （<code>(?&lt;client&gt;[^,\s]+)</code>）にしてください。
+            取った値はそのまま入るので、こちらで切り分けることはしません。
+          </p>
+          <p>
             <strong>行の最後まで書いてください。</strong>combined の末尾には referer と
-            user-agent が付きますが、そこを読む必要が無ければ <code>.*$</code> で
+            user-agent が付きますが、そこを読む必要がなければ <code>.*$</code> で
             まとめて受ければ十分です。
           </p>
 
@@ -391,28 +402,34 @@
                     data-timestamp="yyyy-MM-dd&#39;T&#39;HH:mm:ssXXX"
                     title="2026-06-15T08:01:12+09:00（nginx の $time_iso8601）">2026-06-15T08:01:12+09:00</button>
             <button type="button" class="log-format-part"
+                    data-insert="(?&lt;ts&gt;\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[+-]\d{4})"
+                    data-timestamp="yyyy-MM-dd&#39;T&#39;HH:mm:ssXX"
+                    title="2026-06-15T08:01:12+0900（Apache の %z。コロンが入らない）">2026-06-15T08:01:12+0900</button>
+            <button type="button" class="log-format-part"
                     data-insert="(?&lt;ts&gt;\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})"
                     data-timestamp="yyyy-MM-dd HH:mm:ss"
-                    title="2026-06-15 08:01:12（オフセット無し。UTC として読みます）">2026-06-15 08:01:12</button>
+                    title="2026-06-15 08:01:12（オフセットなし。UTC として読みます）">2026-06-15 08:01:12</button>
             <button type="button" class="log-format-part"
                     data-insert="\[(?&lt;ts&gt;[^\]]+)\]"
                     data-timestamp="dd/MMM/yyyy:HH:mm:ss.SSS Z"
-                    title="[15/Jun/2026:08:01:12.345 +0900]（ミリ秒あり）">[15/Jun/2026:08:01:12.345 +0900]</button>
+                    title="[15/Jun/2026:08:01:12.345 +0900]（ミリ秒の桁は検査する。秒未満は保持しない）">[15/Jun/2026:08:01:12.345 +0900]</button>
           </div>
 
           <p class="log-format-parts-label">アクセス元・リクエスト・ステータス</p>
           <div class="log-format-parts">
             <button type="button" class="log-format-part" data-insert="(?&lt;client&gt;\S+)"
-                    title="空白を含まないひとかたまり。必須">アクセス元 203.0.113.5</button>
+                    title="一覧の Client 列。空白を含まないひとかたまり。必須">アクセス元 203.0.113.5</button>
             <button type="button" class="log-format-part"
                     data-insert="&quot;(?&lt;method&gt;\S+) (?&lt;path&gt;\S+)[^&quot;]*&quot;"
                     title="&quot;GET /a/b HTTP/1.1&quot; を method と path に割る">リクエスト "GET /a/b HTTP/1.1"</button>
             <button type="button" class="log-format-part" data-insert="(?&lt;status&gt;\d+|-)"
-                    title="200 などの数字。記録が無い行は -。必須">ステータス 200</button>
+                    title="200 などの数字。記録がない行は -。必須">ステータス 200</button>
             <button type="button" class="log-format-part" data-insert="(?&lt;host&gt;\S+)"
-                    title="リクエストを受けたホスト。省くとアクセス元と同じ値になる">ホスト</button>
+                    title="一覧の Remote 列（接続元）。省くと client と同じ値">Remote（接続元）</button>
             <button type="button" class="log-format-part" data-insert="(?&lt;xff&gt;\S+)"
-                    title="X-Forwarded-For。プロキシ経由の実クライアント">X-Forwarded-For</button>
+                    title="X-Forwarded-For。絞り込みとツールチップに使う。Client 列には出ない">X-Forwarded-For</button>
+            <button type="button" class="log-format-part" data-insert="(?&lt;client&gt;[^,\s]+)"
+                    title="カンマで連なる X-Forwarded-For から先頭だけを取り、Client 列に出す">アクセス元（XFF の先頭）</button>
           </div>
 
           <p class="log-format-parts-label">つなぎ・そのほか</p>
@@ -463,22 +480,27 @@
             <button type="button" class="log-format-ts-part"
                     data-timestamp="dd/MMM/yyyy:HH:mm:ss.SSS Z">
               <code>dd/MMM/yyyy:HH:mm:ss.SSS Z</code>
-              <span class="log-format-part-sample">15/Jun/2026:08:01:12.345 +0900</span>
+              <span class="log-format-part-sample">15/Jun/2026:08:01:12.345 +0900（秒未満は保持しません）</span>
             </button>
             <button type="button" class="log-format-ts-part"
                     data-timestamp="dd/MMM/yyyy:HH:mm:ss">
               <code>dd/MMM/yyyy:HH:mm:ss</code>
-              <span class="log-format-part-sample">15/Jun/2026:08:01:12（オフセット無し）</span>
+              <span class="log-format-part-sample">15/Jun/2026:08:01:12（オフセットなし）</span>
             </button>
             <button type="button" class="log-format-ts-part"
                     data-timestamp="yyyy-MM-dd&#39;T&#39;HH:mm:ssXXX">
               <code>yyyy-MM-dd'T'HH:mm:ssXXX</code>
-              <span class="log-format-part-sample">2026-06-15T08:01:12+09:00</span>
+              <span class="log-format-part-sample">2026-06-15T08:01:12+09:00（コロンあり）</span>
+            </button>
+            <button type="button" class="log-format-ts-part"
+                    data-timestamp="yyyy-MM-dd&#39;T&#39;HH:mm:ssXX">
+              <code>yyyy-MM-dd'T'HH:mm:ssXX</code>
+              <span class="log-format-part-sample">2026-06-15T08:01:12+0900（コロンなし。Apache の %z）</span>
             </button>
             <button type="button" class="log-format-ts-part"
                     data-timestamp="yyyy-MM-dd&#39;T&#39;HH:mm:ss">
               <code>yyyy-MM-dd'T'HH:mm:ss</code>
-              <span class="log-format-part-sample">2026-06-15T08:01:12（オフセット無し）</span>
+              <span class="log-format-part-sample">2026-06-15T08:01:12（オフセットなし）</span>
             </button>
             <button type="button" class="log-format-ts-part"
                     data-timestamp="yyyy-MM-dd HH:mm:ss">
@@ -492,21 +514,21 @@
             日付を含まない書式（時刻だけ）は、日をまたいだときに並べられないため使えません。
           </p>
           <p>
-            <strong>オフセット（<code>+0900</code> など）が無い書式は UTC として読みます。</strong>
-            組み込み書式がオフセットの無いログを <code>+0000</code> として扱うのと同じで、
+            <strong>オフセット（<code>+0900</code> など）がない書式は UTC として読みます。</strong>
+            組み込み書式がオフセットのないログを <code>+0000</code> として扱うのと同じで、
             画面にはログに書かれたままの時刻が出ます。
           </p>
 
           <h4>うまくいかないとき</h4>
           <p>
             読みたいログを 1 行そのまま「試すログの行」に貼り、<strong>この行で試す</strong>を
-            押してください。各項目に何が取れたか、当たらないときはどこを直せばよいかが出ます
+            押してください。各項目に何が取れたか、一致しないときはどこを直せばよいかが出ます
             （登録はされません）。よくある原因は次の 3 つです。
           </p>
           <ul>
             <li>
               <strong>行の全部を書いていない。</strong>
-              <code>^</code> から <code>$</code> まで、行の最初から最後までが当たる形にします。
+              <code>^</code> から <code>$</code> まで、行の最初から最後までが一致する形にします。
               末尾の referer と user-agent を読まないときも <code>.*$</code> で受けてください。
             </li>
             <li>
@@ -529,8 +551,8 @@
             </li>
             <li>
               <strong><code>(a+)+</code> のように繰り返しを入れ子にした書き方。</strong>
-              照合が急激に重くなるため、行の長さに見合わない照合は打ち切り、読み込みを
-              失敗させます（画面が固まったままにはなりません）。
+              照合が急激に重くなるため、行の長さに見合わない照合は打ち切って、読み込み全体が
+              失敗します（画面が固まったままにはなりません）。
             </li>
             <li>
               <strong><code>(?x)</code>（空白を無視する書き方）。</strong>

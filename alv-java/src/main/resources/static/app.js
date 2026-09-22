@@ -3,7 +3,7 @@ const MAX_PAGE_LIMIT = 5000;
 let offset = 0;
 let lastTotal = 0;
 let browsePath = "";
-/** ディレクトリ参照ダイアログの親ディレクトリ（無ければ null）。 */
+/** ディレクトリ参照ダイアログの親ディレクトリ（なければ null）。 */
 let browseParent = null;
 let metaRange = { first: null, last: null };
 
@@ -491,7 +491,7 @@ function updateMeta(data) {
   }
   // 書式のプルダウンは、この先の早期 return より前に作り直す。ディレクトリ未選択・
   // 読み込み中・読み込み失敗のときも、登録した書式を選べるようにしておかないと、
-  // 「登録したのに 1 回目の読み込みで指定できない」という詰まり方をする。
+  // 「登録したのに 1 回目の読み込みで指定できない」という状態になる。
   syncLogFormatSelect(data);
   if (data.files.length === 0) {
     metaRange = { first: null, last: null };
@@ -687,7 +687,7 @@ function collectFilterFields() {
   return fields;
 }
 
-/** 入力欄の既定値（HTML に書いた値）。保存に無い項目はここへ戻す。 */
+/** 入力欄の既定値（HTML に書いた値）。保存にない項目はここへ戻す。 */
 function defaultFieldValue(el) {
   if (el.tagName === "SELECT") {
     const selected = el.querySelector("option[selected]");
@@ -1281,7 +1281,7 @@ async function renderLogFormatList() {
   els.logFormatEmpty.textContent = "登録した書式はまだありません。";
   els.logFormatEmpty.hidden = items.length > 0;
   // 書式の件数と行の件数は分けて出す（「書式 3 件」と言われて節が 1 つしか
-  // 無いと、利用者は何を直せばよいか分からなくなる）
+  // ないと、利用者は何を直せばよいか分からなくなる）
   const skippedParts = [];
   if (data.skipped_formats) skippedParts.push(`書式 ${data.skipped_formats} 件`);
   if (data.skipped_lines) skippedParts.push(`行 ${data.skipped_lines} 件`);
@@ -1378,7 +1378,7 @@ async function tryLogFormat() {
       `メソッド: ${data.method || "(なし)"}`,
       `パス: ${data.path || "(なし)"}`,
       `ステータス: ${data.status || "(なし)"}`,
-      `ホスト: ${data.host || "(なし)"}`,
+      `Remote（接続元）: ${data.host || "(なし)"}`,
       `XFF: ${data.xff || "(なし)"}`,
     ];
     const note = data.timestamp_checked

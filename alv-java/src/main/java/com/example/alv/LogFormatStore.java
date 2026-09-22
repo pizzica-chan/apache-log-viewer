@@ -17,7 +17,7 @@ import java.util.Set;
 
 /**
  * 利用者が定義したログ書式を、ツールホーム直下のテキストファイルで読み書きする。
- * 場所は {@link IndexStore#repoRoot()}（{@code ALV_HOME}。未設定時はリポジトリ直下）。
+ * 場所は {@link #repoRoot()}（{@code ALV_HOME}。未設定時はリポジトリ直下）。
  *
  * <p>画面の「書式の管理」から登録・削除できるほか、<strong>ファイルを直接編集しても
  * よい</strong>。どちらの経路も {@link #create} で同じ検査を通す。
@@ -34,8 +34,8 @@ import java.util.Set;
  * # 行頭の # はコメント。空行は無視する。
  * [my-app]
  * name = 自社アプリ形式
- * pattern = ^(?&lt;ts&gt;\d{4}/\d{2}/\d{2}) (?&lt;level&gt;\w+) : (?&lt;message&gt;.*)$
- * timestamp = yyyy/MM/dd
+ * pattern = ^(?&lt;client&gt;\S+) \[(?&lt;ts&gt;[^\]]+)\] (?&lt;status&gt;\d+)$
+ * timestamp = dd/MMM/yyyy:HH:mm:ss Z
  * </pre>
  *
  * <ul>
