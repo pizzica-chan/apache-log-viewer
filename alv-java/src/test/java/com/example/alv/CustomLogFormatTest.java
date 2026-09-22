@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.nio.charset.StandardCharsets;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
 
@@ -382,6 +383,60 @@ class CustomLogFormatTest {
         assertNotNull(parse(format(),
                 "203.0.113.5 - - [15/Jun/2026:08:01:12 +0900] \"GET " + path
                         + " HTTP/1.1\" 200 1 \"-\" \"-\""));
+    }
+
+    /**
+     * 書き方ガイドのボタンが配る中身が、そのままコンパイルできること。
+     *
+     * <p>ボタンは「押せば動く」前提で置いてある。{@code data-insert} は正規表現として、
+     * {@code data-timestamp} は日時書式として、それぞれそのまま使われる。
+     * <strong>ガイドの文章は試験で守られていたのに、ボタンやガイドの表に書いた
+     * 正規表現は誰も実行していなかった</strong>ため、実際には一致しない例が載ったまま
+     * になっていたことがある。書き換えるたびに機械で確かめる。
+     */
+    @Test
+    void guidePartsCompile() throws Exception {
+        java.nio.file.Path html = java.nio.file.Paths.get(
+                "src", "main", "resources", "static", "index.html");
+        org.junit.jupiter.api.Assumptions.assumeTrue(
+                java.nio.file.Files.isRegularFile(html), "リポジトリ内で実行したときだけ確かめる");
+        String page = new String(
+                java.nio.file.Files.readAllBytes(html), StandardCharsets.UTF_8);
+
+        int inserts = 0;
+        java.util.regex.Matcher m =
+                java.util.regex.Pattern.compile("data-insert=\"([^\"]*)\"").matcher(page);
+        while (m.find()) {
+            inserts++;
+            String re = unescapeHtml(m.group(1));
+            try {
+                java.util.regex.Pattern.compile(re);
+            } catch (RuntimeException e) {
+                throw new AssertionError("部品の正規表現が壊れています: " + re, e);
+            }
+        }
+
+        int stamps = 0;
+        m = java.util.regex.Pattern.compile("data-timestamp=\"([^\"]*)\"").matcher(page);
+        while (m.find()) {
+            stamps++;
+            String ts = unescapeHtml(m.group(1));
+            try {
+                java.time.format.DateTimeFormatter.ofPattern(ts, java.util.Locale.ENGLISH);
+            } catch (RuntimeException e) {
+                throw new AssertionError("部品の日時書式が壊れています: " + ts, e);
+            }
+        }
+
+        // 抽出そのものが壊れて 0 件になっても気づけるようにする
+        assertTrue(inserts >= 10, "正規表現の部品が見つからない: " + inserts);
+        assertTrue(stamps >= 5, "日時書式の部品が見つからない: " + stamps);
+    }
+
+    /** ガイドは HTML なので、属性値は実体参照のまま入っている。 */
+    private static String unescapeHtml(String s) {
+        return s.replace("&lt;", "<").replace("&gt;", ">")
+                .replace("&quot;", "\"").replace("&#39;", "'").replace("&amp;", "&");
     }
 
     /** 打ち切り基準は行の長さに比例すること（長い行を短い行と同じ上限で切らない）。 */
