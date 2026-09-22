@@ -102,6 +102,37 @@ class FiltersTest {
     }
 
     /**
+     * 試験: source をファイルごとに 1 回だけ照合しておく（{@link QueryFilter#bindSources}）。
+     * 担保: エントリの {@link LogEntry#fileId} で判定し、エントリごとに照合した場合と同じ結果になる。
+     * 照合したあとで正規表現を差し替えても、古い結果を使わない。
+     */
+    @Test
+    void sourceFilterBoundPerFile() throws Exception {
+        String line = "127.0.0.1 - - [20/Jun/2025:08:01:12 +0900] \"GET /api/users HTTP/1.1\" 200 4523";
+        LogEntry inFirst = LogParser.parseLine(line, 0, 1, 0);
+        LogEntry inSecond = LogParser.parseLine(line, 1, 1, 0);
+        java.util.List<String> names =
+                java.util.Arrays.asList("C:/logs/access_log.1", "C:/logs/ssl_access_log");
+
+        QueryFilter f = new QueryFilter();
+        f.sourceRe = QueryFilter.compileRegex("SSL_");
+        f.bindSources(names);
+        // 渡すファイル名ではなく、照合済みの結果（fileId）で判定する
+        assertFalse(f.matches(inFirst, "ignored", null));
+        assertTrue(f.matches(inSecond, "ignored", null));
+
+        // 差し替えたら、照合済みの結果は使わずエントリごとに照合する
+        f.sourceRe = QueryFilter.compileRegex("access_log\\.1");
+        assertTrue(f.matches(inFirst, names.get(0), null));
+        assertFalse(f.matches(inSecond, names.get(1), null));
+
+        // source を指定しなければ絞り込まない
+        QueryFilter none = new QueryFilter();
+        none.bindSources(names);
+        assertTrue(none.matches(inFirst, names.get(0), null));
+    }
+
+    /**
      * 試験: since / until による時刻範囲フィルタ。
      * 担保: 範囲外のエントリは除外され、境界値（since 以上・until 以下）は含まれる。
      */

@@ -658,6 +658,9 @@ public final class LogServer {
             return;
         }
 
+        // source はファイルごとに 1 回だけ照合しておく（エントリごとに照合しない）
+        filter.bindSources(snap.sourceNames());
+
         List<LogEntry> entries = snap.entries();
         List<LogEntry> page = new ArrayList<>();
         List<String> pageRaw = new ArrayList<>();
