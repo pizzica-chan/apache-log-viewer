@@ -32,6 +32,10 @@ if (-not (Test-DockerDaemon)) {
 }
 
 Write-Host "==> repo: $RepoRoot"
+# マウント先のファイルを先に用意する（無いと Docker がディレクトリを作る）
+. "$PSScriptRoot\Initialize-MountedFiles.ps1"
+Initialize-LogFormatsFile -RepoRoot $RepoRoot
+
 Write-Host "==> docker compose up -d --build --force-recreate app"
 & docker compose up -d --build --force-recreate app
 if ($LASTEXITCODE -ne 0) {

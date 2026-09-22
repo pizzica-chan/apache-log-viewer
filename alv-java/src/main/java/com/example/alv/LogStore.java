@@ -16,6 +16,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.LongConsumer;
+import java.util.function.Supplier;
 
 /**
  * ログの読み込み・保持を担うストア。
@@ -79,13 +80,34 @@ public final class LogStore {
      * 利用者が明示指定した書式。{@code null} なら読み込みのたびに自動判定する。
      * 自動判定が外れたときに UI から上書きできるようにするための逃げ道。
      */
-    private volatile LogFormat requestedFormat;
+    private volatile LogFormatSpec requestedFormat;
     /** 直近の読み込みで実際に使った書式。画面に出すために保持する。 */
-    private volatile LogFormat resolvedFormat = LogFormat.COMBINED;
+    private volatile LogFormatSpec resolvedFormat = LogFormatSpec.DEFAULT;
+    /**
+     * 自動判定の候補に加える利用者定義の書式。
+     *
+     * <p>定義ファイルを持っているのは {@link LogServer} なので、読み出しをここへ渡す。
+     * 判定のたびに引き直すのは、ファイルを直してから読み込み直せば、サーバを起動し
+     * 直さずに新しい書式を試せるようにするため。
+     */
+    private volatile Supplier<List<CustomLogFormat>> customFormats =
+            new Supplier<List<CustomLogFormat>>() {
+                @Override
+                public List<CustomLogFormat> get() {
+                    return Collections.emptyList();
+                }
+            };
 
     /** 書式を固定する。{@code null} で自動判定に戻す。 */
-    public void setRequestedFormat(LogFormat format) {
+    public void setRequestedFormat(LogFormatSpec format) {
         this.requestedFormat = format;
+    }
+
+    /** 自動判定の候補に加える利用者定義の書式の読み出し。 */
+    public void setCustomFormats(Supplier<List<CustomLogFormat>> supplier) {
+        if (supplier != null) {
+            this.customFormats = supplier;
+        }
     }
 
     /** 自動判定かどうか（明示指定されていなければ true）。 */
@@ -94,7 +116,7 @@ public final class LogStore {
     }
 
     /** 直近の読み込みで実際に使った書式。 */
-    public LogFormat getResolvedFormat() {
+    public LogFormatSpec getResolvedFormat() {
         return resolvedFormat;
     }
 
@@ -149,8 +171,9 @@ public final class LogStore {
         try {
             // 明示指定が無ければ先頭ファイルの冒頭から判定する。判定は読み込み開始時の 1 回だけで、
             // 1 行あたりに試す正規表現は確定した 1 書式ぶんだけになる。
-            LogFormat requested = requestedFormat;
-            final LogFormat format = requested != null ? requested : LogFormat.detect(paths);
+            LogFormatSpec requested = requestedFormat;
+            final LogFormatSpec format = requested != null
+                    ? requested : LogFormatSpec.detect(paths, customFormats.get());
             resolvedFormat = format;
             LoadResult result = loadEntries(paths, true, format, new LongConsumer() {
                 @Override
@@ -232,10 +255,10 @@ public final class LogStore {
     /** 既定書式での読み込み（テスト・利便用）。 */
     public static LoadResult loadEntries(List<Path> paths, boolean sort, LongConsumer progress)
             throws IOException {
-        return loadEntries(paths, sort, LogFormat.COMBINED, progress);
+        return loadEntries(paths, sort, LogFormatSpec.DEFAULT, progress);
     }
 
-    public static LoadResult loadEntries(List<Path> paths, boolean sort, LogFormat format,
+    public static LoadResult loadEntries(List<Path> paths, boolean sort, LogFormatSpec format,
             LongConsumer progress) throws IOException {
         if (paths.isEmpty()) {
             if (progress != null) {
@@ -271,7 +294,7 @@ public final class LogStore {
         }
     }
 
-    private static ParseAggregate parseParallel(List<Path> paths, LogFormat format,
+    private static ParseAggregate parseParallel(List<Path> paths, LogFormatSpec format,
             LongConsumer progress) throws IOException {
         int n = paths.size();
         final List<List<LogEntry>> perFile = new ArrayList<>(Collections.<List<LogEntry>>nCopies(n, null));
@@ -316,9 +339,13 @@ public final class LogStore {
                 new ArrayList<>(skippedSamples));
     }
 
-    private static List<LogEntry> parseFile(int fileId, Path path, LogFormat format,
+    private static List<LogEntry> parseFile(int fileId, Path path, LogFormatSpec format,
             AtomicLong counter, AtomicLong skippedCounter, List<SkippedLine> skippedSamples,
             LongConsumer progress) throws IOException {
+        // 書式は読み込み開始時に確定しているので、分岐の材料はループの外で 1 回だけ取り出す。
+        // 組み込み書式のときは custom == null で、従来と同じ経路をそのまま通る。
+        final LogFormat builtin = format.builtin();
+        final CustomLogFormat custom = format.custom();
         List<LogEntry> out = new ArrayList<>();
         try (InputStream in = Files.newInputStream(path);
              ByteLineReader reader = new ByteLineReader(in)) {
@@ -329,7 +356,19 @@ public final class LogStore {
                     continue;
                 }
                 String line = new String(reader.lineBuf, 0, reader.lineLen, StandardCharsets.UTF_8);
-                LogEntry entry = LogParser.parseLine(format, line, fileId, lineNo, reader.lineStart);
+                LogEntry entry;
+                if (custom == null) {
+                    entry = LogParser.parseLine(builtin, line, fileId, lineNo, reader.lineStart);
+                } else {
+                    try {
+                        entry = custom.parse(line, fileId, lineNo, reader.lineStart);
+                    } catch (CustomLogFormat.FormatFailure e) {
+                        // 暴走した正規表現や壊れた定義。黙って固まる・原因不明で落ちるより、
+                        // どの書式のどこで止めたかが分かる形で失敗させる。
+                        throw new IOException(e.getMessage() + "（" + path + " の "
+                                + lineNo + " 行目）", e);
+                    }
+                }
                 if (entry != null) {
                     out.add(entry);
                     long c = counter.incrementAndGet();

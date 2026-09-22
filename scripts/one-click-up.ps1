@@ -47,6 +47,10 @@ if (-not $SkipDockerDesktopStart) {
 
 Write-Host "==> Apache Log Viewer を Docker で起動します"
 Write-Host "==> repo: $RepoRoot"
+# マウント先のファイルを先に用意する（無いと Docker がディレクトリを作る）
+. "$PSScriptRoot\Initialize-MountedFiles.ps1"
+Initialize-LogFormatsFile -RepoRoot $RepoRoot
+
 Write-Host "==> docker compose up --build -d --force-recreate"
 & docker compose up --build -d --force-recreate
 if ($LASTEXITCODE -ne 0) {

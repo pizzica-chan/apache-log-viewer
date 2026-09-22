@@ -1,0 +1,27 @@
+# alv の利用者定義ログ書式（例）
+#
+# このファイルをツールホーム直下へ alv-log-formats.txt として置くと、
+# 書式のプルダウンに並びます（ALV_HOME。未設定時はリポジトリ直下）。
+# 画面の「書式の管理」からも同じファイルを編集できます。
+#
+# 行頭の # だけがコメントです。値の途中の # はただの文字として扱います。
+#
+# 必須は pattern と timestamp。name を省くと id をそのまま名前に使います。
+# 取り出す項目は名前付きグループで、ts / client / status が必須です。
+# この 3 つが欠けると、一覧・期間・ステータスの絞り込みが成り立ちません。
+# method / path / host / xff は任意で、省くと method と path は -、
+# host は client と同じ値、xff は空になります。
+#
+# 日時書式にオフセット（Z や XXX）があればそれを使い、無ければ UTC とみなします。
+
+# 203.0.113.5 - - [15/Jun/2026:08:01:12 +0900] "GET /a/b HTTP/1.1" 200 123 "-" "curl/8.0"
+[combined-ish]
+name = combined を自分で書いたもの
+pattern = ^(?<client>\S+) \S+ \S+ \[(?<ts>[^\]]+)\] "(?<method>\S+) (?<path>\S+)[^"]*" (?<status>\d+|-) .*$
+timestamp = dd/MMM/yyyy:HH:mm:ss Z
+
+# 2026-06-15T08:01:12+09:00 203.0.113.5 GET /a/b 200 123
+[iso-fields]
+name = ISO8601 の日時が先頭に来る形式
+pattern = ^(?<ts>\S+) (?<client>\S+) (?<method>\S+) (?<path>\S+) (?<status>\d+) \S+$
+timestamp = yyyy-MM-dd'T'HH:mm:ssXXX

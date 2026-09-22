@@ -7,7 +7,12 @@ services:
     ports:
       # ループバックのみに公開する（無認証のため LAN へ露出させない）
       - "127.0.0.1:8769:8769"
+    environment:
+      ALV_HOME: /app
     volumes:
       # サンプルログ（読み取り専用）。別ディレクトリを試す場合は ALV_LOG_DIR を指定
       - ${ALV_LOG_DIR:-./samples}:/app/logs/samples:ro
+      # 利用者定義のログ書式。無いと Docker がディレクトリを作るので、
+      # 起動スクリプトが空ファイルを用意する
+      - ./alv-log-formats.txt:/app/alv-log-formats.txt
     command: ["--host", "0.0.0.0", "--port", "8769", "--dir", "/app/logs/samples"]

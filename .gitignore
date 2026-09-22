@@ -5,6 +5,12 @@ tmp/
 alv-java/target/
 *.class
 
+# User-defined log formats (tool home / repo root; ALV_HOME overrides)
+alv-log-formats.txt
+alv-log-formats.txt.tmp
+alv-java/alv-log-formats.txt
+alv-java/alv-log-formats.txt.tmp
+
 # エディタ / OS
 .vscode/
 .idea/
