@@ -104,7 +104,7 @@ class LogParserTest {
 
     /**
      * 試験: {@link LogParser#splitLeadingHosts(String)} の分岐を検証する。
-     * 担保: XFF 無し・XFF あり・XFF が {@code "-"} の各ケースで [forwardedFor, host] が期待通り。
+     * 担保: XFF なし・XFF あり・XFF が {@code "-"} の各ケースで [forwardedFor, host] が期待通り。
      */
     @Test
     void splitLeadingHosts() {

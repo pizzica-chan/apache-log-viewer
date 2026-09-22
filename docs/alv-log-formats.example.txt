@@ -12,7 +12,7 @@
 # method / path / host / xff は任意で、省くと method と path は -、
 # host は client と同じ値、xff は空になります。
 #
-# 日時書式にオフセット（Z や XXX）があればそれを使い、無ければ UTC とみなします。
+# 日時書式にオフセット（Z や XXX）があればそれを使い、なければ UTC とみなします。
 
 # 203.0.113.5 - - [15/Jun/2026:08:01:12 +0900] "GET /a/b HTTP/1.1" 200 123 "-" "curl/8.0"
 [combined-ish]

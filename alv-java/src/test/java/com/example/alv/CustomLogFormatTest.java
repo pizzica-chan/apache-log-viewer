@@ -14,7 +14,7 @@ import org.junit.jupiter.api.Test;
  * 利用者定義書式（正規表現）の解析。
  *
  * <ul>
- *   <li>名前付きグループの取り出しと、任意グループが無いときの既定値</li>
+ *   <li>名前付きグループの取り出しと、任意グループがないときの既定値</li>
  *   <li>時刻とタイムゾーンの解釈が組み込み書式と一致すること</li>
  *   <li>暴走する正規表現を打ち切ること（読み込みが返らなくなるのを防ぐ）</li>
  *   <li>定義そのものが壊れているときに、作る時点で弾くこと</li>
@@ -72,9 +72,9 @@ class CustomLogFormatTest {
     }
 
     /**
-     * 日時書式にオフセットが無ければ UTC とみなすこと。
+     * 日時書式にオフセットがなければ UTC とみなすこと。
      *
-     * <p>組み込み書式がオフセットの無いログへ {@code +0000} を補うのと同じ。
+     * <p>組み込み書式がオフセットのないログへ {@code +0000} を補うのと同じ。
      * そろえないと、同じログを書式違いで読んだときに表示時刻が動く。
      */
     @Test
@@ -116,7 +116,7 @@ class CustomLogFormatTest {
         assertNull(parse(f, "203.0.113.5 [15/Jun/2026:08:01:12 +0900] 200"));
     }
 
-    /** 任意グループが無い書式でも使えて、欠けた項目は既定値になること。 */
+    /** 任意グループがない書式でも使えて、欠けた項目は既定値になること。 */
     @Test
     void optionalGroupsFallBack() {
         CustomLogFormat f = new CustomLogFormat("minimal", "必須だけ",
@@ -434,7 +434,7 @@ class CustomLogFormatTest {
         assertTrue(e.getMessage().contains("cmt2"), e.getMessage());
     }
 
-    /** 必須グループが無い書式は作れないこと。 */
+    /** 必須グループがない書式は作れないこと。 */
     @Test
     void requiresMandatoryGroups() {
         IllegalArgumentException noTs = assertThrows(IllegalArgumentException.class,

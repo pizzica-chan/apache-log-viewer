@@ -206,7 +206,7 @@ class LogStoreTest {
      * 試験: 読み込み中に別ディレクトリへ切り替えたときの結果反映。
      * 担保: 先に始まった重い読み込みが後から完了しても、新しい読み込み結果を
      *       上書きしない（世代が一致しない結果は破棄される）。
-     *       この保護が無いと、件数・ファイル名・エントリの組み合わせが壊れる。
+     *       この保護がないと、件数・ファイル名・エントリの組み合わせが壊れる。
      */
     @Test
     void staleLoadResultIsDiscarded() throws Exception {
@@ -226,7 +226,7 @@ class LogStoreTest {
         assertEquals(LogSnapshot.READY, snap.status());
         assertEquals(1, snap.logPaths().size(), "対象は切り替え後の 1 ファイル");
         assertEquals(1, snap.sourceNames().size());
-        // エントリの fileId が sourceNames の範囲に収まっている（添字ずれが無い）。
+        // エントリの fileId が sourceNames の範囲に収まっている（添字ずれがない）。
         for (LogEntry e : snap.entries()) {
             assertTrue(e.fileId < snap.sourceNames().size(),
                     "fileId=" + e.fileId + " が範囲外");

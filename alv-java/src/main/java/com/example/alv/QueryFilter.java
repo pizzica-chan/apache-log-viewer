@@ -39,7 +39,7 @@ public final class QueryFilter {
     /**
      * 1 エントリがフィルタ条件に合致するか判定する。
      *
-     * @param raw grep 用の生ログ読み出し（grep 指定が無ければ {@code null} 可）
+     * @param raw grep 用の生ログ読み出し（grep 指定がなければ {@code null} 可）
      */
     public boolean matches(LogEntry e, String sourceName, RawLine raw) throws IOException {
         if (sinceWallMillis != null || untilWallMillis != null) {

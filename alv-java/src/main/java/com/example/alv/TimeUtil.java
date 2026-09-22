@@ -22,7 +22,7 @@ public final class TimeUtil {
     /**
      * Apache 形式のタイムスタンプ {@code 10/Oct/2000:13:55:36 -0700} を解析する。
      *
-     * <p>タイムゾーンが無い場合は {@code +0000}（UTC）とみなす。
+     * <p>タイムゾーンがない場合は {@code +0000}（UTC）とみなす。
      * 実在しない日時（{@code 32/Jan}、{@code 29/Feb} の平年など）は解析失敗として扱う。
      *
      * @return {@code [utcMillis, offsetMinutes]}。解析できない場合は {@code null}
@@ -36,7 +36,7 @@ public final class TimeUtil {
                     && (v.charAt(10) == 'T' || v.charAt(10) == ' ')) {
                 return parseIso8601Timestamp(v);
             }
-            // タイムゾーン（[+-]HHMM）が無ければ UTC を補う。
+            // タイムゾーン（[+-]HHMM）がなければ UTC を補う。
             if (v.length() < 5 || (v.charAt(v.length() - 5) != '+' && v.charAt(v.length() - 5) != '-')) {
                 v = v + " +0000";
             }
@@ -83,7 +83,7 @@ public final class TimeUtil {
      * ISO8601 形式（{@code 2025-06-20T08:01:12+09:00} / {@code ...Z} / オフセットなし）を解析する。
      *
      * <p>nginx の {@code $time_iso8601} や、Apache の {@code %{%Y-%m-%dT%H:%M:%S%z}t} のような
-     * 独自指定で出力されるログ向け。オフセットが無い場合は UTC とみなす（Apache 形式と同じ扱い）。
+     * 独自指定で出力されるログ向け。オフセットがない場合は UTC とみなす（Apache 形式と同じ扱い）。
      *
      * @return {@code [utcMillis, offsetMinutes]}。解析できない場合は {@code null}
      */

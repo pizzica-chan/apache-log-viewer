@@ -12,7 +12,7 @@ services:
     volumes:
       # サンプルログ（読み取り専用）。別ディレクトリを試す場合は ALV_LOG_DIR を指定
       - ${ALV_LOG_DIR:-./samples}:/app/logs/samples:ro
-      # 利用者定義のログ書式。無いと Docker がディレクトリを作るので、
+      # 利用者定義のログ書式。ないと Docker がディレクトリを作るので、
       # 起動スクリプトが空ファイルを用意する
       - ./alv-log-formats.txt:/app/alv-log-formats.txt
     command: ["--host", "0.0.0.0", "--port", "8769", "--dir", "/app/logs/samples"]

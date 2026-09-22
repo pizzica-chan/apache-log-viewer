@@ -25,7 +25,7 @@ class FiltersTest {
 
     /**
      * 試験: ステータスフィルタ文字列（単一値 / 範囲 / 複数指定）の解析。
-     * 担保: 空文字は「フィルタ無し（null）」、{@code 4xx} は 400–499、カンマ区切りは和集合になる。
+     * 担保: 空文字は「フィルタなし（null）」、{@code 4xx} は 400–499、カンマ区切りは和集合になる。
      */
     @Test
     void parseStatusFilter() {
@@ -75,7 +75,7 @@ class FiltersTest {
 
     /**
      * 試験: grep 条件指定時の raw 行読み出し依存。
-     * 担保: RawLine が無い場合は常に {@code false}、渡されれば生ログ行に対して正規表現マッチする。
+     * 担保: RawLine がない場合は常に {@code false}、渡されれば生ログ行に対して正規表現マッチする。
      */
     @Test
     void grepRequiresRaw() throws Exception {
@@ -190,7 +190,7 @@ class FiltersTest {
 
     /**
      * 試験: 正規表現コンパイルヘルパの空入力。
-     * 担保: null / 空文字は「条件無し（null Pattern）」として扱われる。
+     * 担保: null / 空文字は「条件なし（null Pattern）」として扱われる。
      */
     @Test
     void compileRegexEmptyReturnsNull() {

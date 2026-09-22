@@ -37,19 +37,20 @@ import java.util.regex.PatternSyntaxException;
  * {@code method} / {@code path} / {@code host} / {@code xff} は任意で、
  * なければ {@code method} と {@code path} は {@code -}、{@code host} は {@code client} と
  * 同じ値、{@code xff} は空になる。
- * {@code client} が一覧の Client 列、{@code host} が Remote 列です。
- * {@code xff} は絞り込みとツールチップにだけ使い、Client 列は置き換えません
- * （組み込みの nginx 書式が末尾の X-Forwarded-For を Client 列へ載せるのとは違います）。
- * プロキシ経由の実クライアントを一覧に出すときは、その値を {@code client} に取ります。
+ * {@code client} が一覧の Client 列、{@code host} が Remote 列にあたる。
+ * {@code xff} は絞り込みとツールチップにだけ使い、Client 列は置き換えない
+ * （組み込みの nginx 書式が末尾の X-Forwarded-For を Client 列へ載せるのとは違う）。
+ * プロキシ経由の実クライアントを一覧に出すときは、その値を {@code client} に取る。
  *
  * <h2>時刻とタイムゾーン</h2>
  * <p>日時書式にオフセットがあればそれを使い、なければ
  * <strong>UTC とみなす</strong>。{@code +0900} は {@code Z} または {@code XX}、
- * コロン付きの {@code +09:00} は {@code XXX} です。組み込み書式がオフセットのないログを
- * {@code +0000} として扱うのと同じで、画面にはログに書かれたままの時刻が出ます。
- * 秒未満（{@code SSS} など）は、その桁が書いてあることの検査にだけ使い、
- * 保存する時刻は秒で切ります。画面の時刻表示も秒までなので、ミリ秒を残すと
- * 表示されている時刻を期間の上限にしたときにその行が範囲から外れます。
+ * コロン付きの {@code +09:00} は {@code XXX} になる。組み込み書式がオフセットのないログを
+ * {@code +0000} として扱うのと同じで、画面にはログに書かれたままの時刻が出る。
+ *
+ * <p>秒未満（{@code SSS} など）は、その桁が書いてあることの検査にだけ使い、
+ * <strong>保存する時刻は秒で切る</strong>。画面の時刻表示も秒までなので、ミリ秒を残すと
+ * 表示されている時刻を期間の上限にしたときに、その行自身が範囲から外れる。
  *
  * <h2>暴走する正規表現への備え</h2>
  * <p>利用者が書いた正規表現は、入れ子の量指定子などで後戻りが爆発しうる。Java の
@@ -70,7 +71,7 @@ public final class CustomLogFormat {
     static final String GROUP_CLIENT = "client";
     static final String GROUP_STATUS = "status";
 
-    /** 値が無いことを表す印。組み込み書式がリクエスト行を割れなかったときと同じ。 */
+    /** 値がないことを表す印。組み込み書式がリクエスト行を割れなかったときと同じ。 */
     static final String NO_VALUE = "-";
 
     /** 名前付きグループの開始。名前は英字始まりの英数字（Java の正規表現の規則）。 */
@@ -89,7 +90,7 @@ public final class CustomLogFormat {
 
     /**
      * @throws IllegalArgumentException 正規表現・日時書式が壊れている、
-     *                                  または必須グループが無い場合
+     *                                  または必須グループがない場合
      */
     CustomLogFormat(String id, String name, String patternText, String timestampPattern) {
         this.id = id;
@@ -128,7 +129,7 @@ public final class CustomLogFormat {
     /**
      * パターン文字列から、名前付きグループの名前を集める。
      *
-     * <p>Java 8 の {@link Matcher} には名前の一覧を得る公開 API が無く、マッチしていない
+     * <p>Java 8 の {@link Matcher} には名前の一覧を得る公開 API がなく、マッチしていない
      * 状態で {@code group(name)} を呼ぶと、名前の有無にかかわらず
      * {@link IllegalStateException} になる（存在確認より先に投げられる）。そのため
      * パターン文字列を自分で走査する。
@@ -381,7 +382,7 @@ public final class CustomLogFormat {
     /**
      * 取り出した文字列を {@code [UTC millis, オフセット分]} に変換する。
      *
-     * <p>日時書式にオフセットが無ければ UTC とみなす（組み込み書式が
+     * <p>日時書式にオフセットがなければ UTC とみなす（組み込み書式が
      * {@code +0000} を補うのと同じ）。
      *
      * @return 解析できない場合は {@code null}

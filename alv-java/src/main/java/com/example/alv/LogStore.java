@@ -169,7 +169,7 @@ public final class LogStore {
     /** 読み込み本体。世代が一致する場合だけ結果を反映する。 */
     private void runLoad(final long generation, List<Path> paths) {
         try {
-            // 明示指定が無ければ先頭ファイルの冒頭から判定する。判定は読み込み開始時の 1 回だけで、
+            // 明示指定がなければ先頭ファイルの冒頭から判定する。判定は読み込み開始時の 1 回だけで、
             // 1 行あたりに試す正規表現は確定した 1 書式ぶんだけになる。
             LogFormatSpec requested = requestedFormat;
             final LogFormatSpec format = requested != null
