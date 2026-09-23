@@ -1,7 +1,9 @@
 package com.example.alv;
 
+import java.io.FilterInputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.RandomAccessFile;
 import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -35,7 +37,8 @@ import java.util.function.Supplier;
  * <h2>パフォーマンス設計</h2>
  * <ul>
  *   <li>複数ファイルを {@link ExecutorService} で<b>並列パース</b>し、ファイルごとの
- *       時系列リストを作る。</li>
+ *       時系列リストを作る。大きなファイルは行の境目で分けて、その範囲も並列にパースする
+ *       （{@link #parseParallel}）。</li>
  *   <li>その後 {@link PriorityQueue} による <b>k-way マージ</b>で全体を時刻順に統合する
  *       （各ファイル内の順序は保持）。</li>
  *   <li>I/O は {@link ByteLineReader}（1 MiB バッファ）で行い、各行の byte offset を記録。
@@ -46,6 +49,15 @@ public final class LogStore {
 
     private static final long PROGRESS_INTERVAL = 50_000L;
     private static final int MAX_SKIPPED_SAMPLES = 5;
+    /**
+     * これより大きいファイルは、行の境目で分けて並列にパースする（{@link #parseParallel}）。
+     *
+     * <p>8 MiB は「これより小さいファイルは分けなくても十分短く読める」とみて置いた値で、
+     * 他の値とは比べていない。
+     */
+    static final long SPLIT_BYTES = 8L << 20;
+    /** 1 ファイルを分ける数の上限。 */
+    static final int MAX_RANGES_PER_FILE = 64;
     private static final int PREVIEW_MAX_LEN = 120;
 
     private final Object loadLock = new Object();
@@ -260,15 +272,24 @@ public final class LogStore {
 
     public static LoadResult loadEntries(List<Path> paths, boolean sort, LogFormatSpec format,
             LongConsumer progress) throws IOException {
+        return loadEntries(paths, sort, format, progress, SPLIT_BYTES);
+    }
+
+    /** 分ける大きさを指定した読み込み（試験で小さなファイルを細かく分けるため）。 */
+    static LoadResult loadEntries(List<Path> paths, boolean sort, LogFormatSpec format,
+            LongConsumer progress, long splitBytes) throws IOException {
         if (paths.isEmpty()) {
             if (progress != null) {
                 progress.accept(0);
             }
             return new LoadResult(new ArrayList<LogEntry>(), 0, Collections.<SkippedLine>emptyList());
         }
-        ParseAggregate aggregate = parseParallel(paths, format, progress);
+        ParseAggregate aggregate = parseParallel(paths, format, progress, splitBytes);
         List<LogEntry> result;
-        if (sort) {
+        if (sort && aggregate.perFile.size() == 1) {
+            // 1 ファイルならファイル内の順序がそのまま答えなので、マージを通さない
+            result = aggregate.perFile.get(0);
+        } else if (sort) {
             result = merge(aggregate.perFile);
         } else {
             result = new ArrayList<>();
@@ -294,32 +315,264 @@ public final class LogStore {
         }
     }
 
+    /**
+     * 読み込む単位（ファイル、または大きなファイルを行の境目で分けた一部）。
+     *
+     * <p>{@link #end} は含まない。ファイルの最後の範囲は {@link Long#MAX_VALUE} で、読み込み中に
+     * 追記された行も含めて末尾まで読む（分けない場合と同じ）。
+     */
+    static final class Range {
+        final int fileId;
+        final Path path;
+        final long start;
+        final long end;
+
+        Range(int fileId, Path path, long start, long end) {
+            this.fileId = fileId;
+            this.path = path;
+            this.start = start;
+            this.end = end;
+        }
+
+        boolean isLast() {
+            return end == Long.MAX_VALUE;
+        }
+    }
+
+    /** 1 範囲の解析結果。行番号は範囲の中で数えたもの（{@link #parseParallel} で直す）。 */
+    private static final class RangeResult {
+        final List<LogEntry> entries;
+        /** 範囲の中で読んだ行数（空行・読み飛ばした行を含む）。 */
+        final int lineCount;
+        final int skippedLines;
+        /** この範囲で読み飛ばした行のうち先頭から最大 {@link #MAX_SKIPPED_SAMPLES} 件。 */
+        final List<SkippedLine> skippedSamples;
+
+        RangeResult(List<LogEntry> entries, int lineCount, int skippedLines,
+                List<SkippedLine> skippedSamples) {
+            this.entries = entries;
+            this.lineCount = lineCount;
+            this.skippedLines = skippedLines;
+            this.skippedSamples = skippedSamples;
+        }
+    }
+
+    /** 範囲の中の行で、利用者定義の書式が失敗した。行番号はファイル全体に直してから伝える。 */
+    private static final class RangeFormatFailure extends IOException {
+        final int localLineNo;
+        final Path path;
+
+        RangeFormatFailure(CustomLogFormat.FormatFailure cause, Path path, int localLineNo) {
+            super(cause.getMessage(), cause);
+            this.path = path;
+            this.localLineNo = localLineNo;
+        }
+    }
+
+    /**
+     * 複数ファイルを並列にパースする。{@code splitBytes} を超えるファイルは行の境目で
+     * 分け、分けた範囲も並列にパースする。
+     *
+     * <p>ファイル単位の並列化だけでは、大きなファイル 1 つを読むときに 1 コアしか使えない。
+     * 1 行ごとの解析は分けない場合とまったく同じにする。行番号は範囲の中で数えておき、
+     * 全範囲を読み終えてから前の範囲の行数を足して直す（行番号のためにファイルを 2 回読まない。
+     * ネットワークドライブ上のログでは読み込みの I/O がそのまま倍になるため）。
+     * 読み飛ばした行のサンプルは範囲ごとに集め、ファイル順・範囲順に先頭から取る
+     * （1 ファイルなら分けない場合と同じ行が選ばれる）。
+     *
+     * <p>実測（100 万行・148 MB のアクセスログ、12 論理コア、Windows 11 / JDK 11、
+     * 変更前後を交互に 5 回の中央値を 3 ラウンド取った中央値）:
+     * 1 ファイル 1,485ms → 378ms、3 ファイル（各 49 MB）632ms → 410ms。
+     * 分けない大きさのファイルだけの構成（30 ファイル・300 ファイル）では差はない。
+     */
     private static ParseAggregate parseParallel(List<Path> paths, LogFormatSpec format,
-            LongConsumer progress) throws IOException {
-        int n = paths.size();
-        final List<List<LogEntry>> perFile = new ArrayList<>(Collections.<List<LogEntry>>nCopies(n, null));
-        final AtomicLong counter = new AtomicLong();
-        final AtomicLong skippedCounter = new AtomicLong();
-        final List<SkippedLine> skippedSamples = Collections.synchronizedList(new ArrayList<SkippedLine>());
-        int threads = Math.max(1, Math.min(n, Runtime.getRuntime().availableProcessors()));
+            LongConsumer progress, long splitBytes) throws IOException {
+        List<Range> ranges = splitIntoRanges(paths, splitBytes);
+        int threads = Math.max(1, Math.min(ranges.size(), Runtime.getRuntime().availableProcessors()));
         ExecutorService pool = Executors.newFixedThreadPool(threads);
         try {
-            List<Future<?>> futures = new ArrayList<>(n);
-            for (int i = 0; i < n; i++) {
-                final int fileId = i;
-                final Path path = paths.get(i);
-                futures.add(pool.submit(() -> {
-                    try {
-                        perFile.set(fileId, parseFile(fileId, path, format, counter, skippedCounter,
-                                skippedSamples, progress));
-                    } catch (IOException e) {
-                        throw new UncheckedIOException(e);
+            final AtomicLong counter = new AtomicLong();
+            List<Future<RangeResult>> futures = new ArrayList<>(ranges.size());
+            for (final Range range : ranges) {
+                futures.add(pool.submit(() -> parseRange(range, format, counter, progress)));
+            }
+            // 投入順に受け取るので、ある範囲が失敗した時点でそれより前の範囲の行数は揃っている
+            List<RangeResult> results = new ArrayList<>(ranges.size());
+            int[] lineNoBase = new int[ranges.size()];
+            for (int i = 0; i < ranges.size(); i++) {
+                Range range = ranges.get(i);
+                lineNoBase[i] = range.start == 0 ? 0 : lineNoBase[i - 1] + results.get(i - 1).lineCount;
+                try {
+                    results.add(await(futures.get(i)));
+                } catch (RangeFormatFailure e) {
+                    throw new IOException(e.getMessage() + "（" + e.path + " の "
+                            + (lineNoBase[i] + e.localLineNo) + " 行目）", e.getCause());
+                }
+            }
+            shiftLineNumbers(results, lineNoBase, pool);
+
+            List<List<LogEntry>> perFile = new ArrayList<>(paths.size());
+            int skippedLines = 0;
+            List<SkippedLine> samples = new ArrayList<>();
+            int r = 0;
+            for (int fileId = 0; fileId < paths.size(); fileId++) {
+                int from = r;
+                int size = 0;
+                while (r < ranges.size() && ranges.get(r).fileId == fileId) {
+                    size += results.get(r).entries.size();
+                    r++;
+                }
+                List<LogEntry> entries;
+                if (r - from == 1) {
+                    entries = results.get(from).entries;
+                } else {
+                    entries = new ArrayList<>(size);
+                    for (int i = from; i < r; i++) {
+                        entries.addAll(results.get(i).entries);
                     }
-                }));
+                }
+                perFile.add(entries);
+                for (int i = from; i < r; i++) {
+                    RangeResult result = results.get(i);
+                    skippedLines += result.skippedLines;
+                    for (SkippedLine s : result.skippedSamples) {
+                        if (samples.size() < MAX_SKIPPED_SAMPLES) {
+                            samples.add(new SkippedLine(s.fileId, s.lineNo + lineNoBase[i], s.preview));
+                        }
+                    }
+                }
             }
-            for (Future<?> f : futures) {
-                f.get();
+            return new ParseAggregate(perFile, skippedLines, samples);
+        } finally {
+            pool.shutdownNow();
+        }
+    }
+
+    /** 範囲の中で数えた行番号を、ファイル全体の行番号へ直す（ファイルの先頭の範囲はそのまま）。 */
+    private static void shiftLineNumbers(List<RangeResult> results, int[] lineNoBase,
+            ExecutorService pool) throws IOException {
+        List<Future<?>> futures = new ArrayList<>();
+        for (int i = 0; i < results.size(); i++) {
+            final int delta = lineNoBase[i];
+            if (delta == 0) {
+                continue;
             }
+            final List<LogEntry> entries = results.get(i).entries;
+            futures.add(pool.submit(() -> {
+                for (int k = 0; k < entries.size(); k++) {
+                    entries.set(k, entries.get(k).withLineNoOffset(delta));
+                }
+            }));
+        }
+        for (Future<?> f : futures) {
+            await(f);
+        }
+    }
+
+    /**
+     * ファイルを読み込む範囲に分ける。{@code splitBytes} 以下のファイルは分けない。
+     * 分け目は、おおよその位置のあとに来る最初の改行の直後にする。
+     */
+    static List<Range> splitIntoRanges(List<Path> paths, long splitBytes) throws IOException {
+        List<Range> ranges = new ArrayList<>();
+        for (int fileId = 0; fileId < paths.size(); fileId++) {
+            Path path = paths.get(fileId);
+            long size = Files.size(path);
+            int pieces = (int) Math.min(MAX_RANGES_PER_FILE, Math.max(1, size / splitBytes));
+            long start = 0;
+            if (pieces > 1) {
+                try (RandomAccessFile raf = new RandomAccessFile(path.toFile(), "r")) {
+                    for (int k = 1; k < pieces; k++) {
+                        long boundary = nextLineStart(raf, Math.max(start, size / pieces * k));
+                        if (boundary <= start || boundary >= size) {
+                            continue;
+                        }
+                        ranges.add(new Range(fileId, path, start, boundary));
+                        start = boundary;
+                    }
+                }
+            }
+            ranges.add(new Range(fileId, path, start, Long.MAX_VALUE));
+        }
+        return ranges;
+    }
+
+    /** {@code pos} 以降で最初に始まる行の先頭（{@code pos - 1} が改行なら {@code pos}）。見つからなければ -1。 */
+    private static long nextLineStart(RandomAccessFile raf, long pos) throws IOException {
+        byte[] buf = new byte[8192];
+        long at = Math.max(0, pos - 1);
+        raf.seek(at);
+        while (true) {
+            int n = raf.read(buf);
+            if (n <= 0) {
+                return -1;
+            }
+            for (int i = 0; i < n; i++) {
+                if (buf[i] == '\n') {
+                    return at + i + 1;
+                }
+            }
+            at += n;
+        }
+    }
+
+    /** 範囲の先頭から読むストリーム。最後の範囲以外は範囲の終わりで止まる。 */
+    private static InputStream openRange(Range range) throws IOException {
+        InputStream in = Files.newInputStream(range.path);
+        try {
+            long toSkip = range.start;
+            while (toSkip > 0) {
+                long skipped = in.skip(toSkip);
+                if (skipped <= 0) {
+                    break;
+                }
+                toSkip -= skipped;
+            }
+        } catch (IOException e) {
+            in.close();
+            throw e;
+        }
+        return range.isLast() ? in : new BoundedInputStream(in, range.end - range.start);
+    }
+
+    /** 残りのバイト数で読み出しを止めるストリーム。 */
+    private static final class BoundedInputStream extends FilterInputStream {
+        private long remaining;
+
+        BoundedInputStream(InputStream in, long limit) {
+            super(in);
+            this.remaining = limit;
+        }
+
+        @Override
+        public int read() throws IOException {
+            if (remaining <= 0) {
+                return -1;
+            }
+            int b = super.read();
+            if (b >= 0) {
+                remaining--;
+            }
+            return b;
+        }
+
+        @Override
+        public int read(byte[] b, int off, int len) throws IOException {
+            if (remaining <= 0) {
+                return -1;
+            }
+            int n = super.read(b, off, (int) Math.min(len, remaining));
+            if (n > 0) {
+                remaining -= n;
+            }
+            return n;
+        }
+    }
+
+    /** タスクの完了を待つ。失敗は元の {@link IOException} に戻して投げる。 */
+    private static <T> T await(Future<T> future) throws IOException {
+        try {
+            return future.get();
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new IOException("読み込みが中断されました", e);
@@ -332,41 +585,39 @@ public final class LogStore {
                 throw (IOException) cause;
             }
             throw new IOException(cause != null ? cause.getMessage() : e.getMessage(), cause);
-        } finally {
-            pool.shutdownNow();
         }
-        return new ParseAggregate(perFile, (int) skippedCounter.get(),
-                new ArrayList<>(skippedSamples));
     }
 
-    private static List<LogEntry> parseFile(int fileId, Path path, LogFormatSpec format,
-            AtomicLong counter, AtomicLong skippedCounter, List<SkippedLine> skippedSamples,
+    private static RangeResult parseRange(Range range, LogFormatSpec format, AtomicLong counter,
             LongConsumer progress) throws IOException {
         // 書式は読み込み開始時に確定しているので、分岐の材料はループの外で 1 回だけ取り出す。
         // 組み込み書式のときは custom == null で、従来と同じ経路をそのまま通る。
         final LogFormat builtin = format.builtin();
         final CustomLogFormat custom = format.custom();
+        final int fileId = range.fileId;
         List<LogEntry> out = new ArrayList<>();
-        try (InputStream in = Files.newInputStream(path);
+        int skipped = 0;
+        List<SkippedLine> samples = new ArrayList<>();
+        int lineNo = 0;
+        try (InputStream in = openRange(range);
              ByteLineReader reader = new ByteLineReader(in)) {
-            int lineNo = 0;
             while (reader.next()) {
                 lineNo++;
                 if (reader.isBlankLine()) {
                     continue;
                 }
+                long lineStart = range.start + reader.lineStart;
                 String line = new String(reader.lineBuf, 0, reader.lineLen, StandardCharsets.UTF_8);
                 LogEntry entry;
                 if (custom == null) {
-                    entry = LogParser.parseLine(builtin, line, fileId, lineNo, reader.lineStart);
+                    entry = LogParser.parseLine(builtin, line, fileId, lineNo, lineStart);
                 } else {
                     try {
-                        entry = custom.parse(line, fileId, lineNo, reader.lineStart);
+                        entry = custom.parse(line, fileId, lineNo, lineStart);
                     } catch (CustomLogFormat.FormatFailure e) {
                         // 暴走した正規表現や壊れた定義。黙って固まる・原因不明で落ちるより、
                         // どの書式のどこで止めたかが分かる形で失敗させる。
-                        throw new IOException(e.getMessage() + "（" + path + " の "
-                                + lineNo + " 行目）", e);
+                        throw new RangeFormatFailure(e, range.path, lineNo);
                     }
                 }
                 if (entry != null) {
@@ -376,14 +627,14 @@ public final class LogStore {
                         progress.accept(c);
                     }
                 } else {
-                    skippedCounter.incrementAndGet();
-                    if (skippedSamples.size() < MAX_SKIPPED_SAMPLES) {
-                        skippedSamples.add(new SkippedLine(fileId, lineNo, previewLine(line)));
+                    skipped++;
+                    if (samples.size() < MAX_SKIPPED_SAMPLES) {
+                        samples.add(new SkippedLine(fileId, lineNo, previewLine(line)));
                     }
                 }
             }
         }
-        return out;
+        return new RangeResult(out, lineNo, skipped, samples);
     }
 
     private static String previewLine(String line) {

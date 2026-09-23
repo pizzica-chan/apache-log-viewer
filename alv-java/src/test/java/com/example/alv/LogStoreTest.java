@@ -116,6 +116,97 @@ class LogStoreTest {
     }
 
     /**
+     * 試験: 大きなファイルを行の境目で細かく分けて読んだ結果を、分けずに読んだ結果と比べる。
+     * 担保: 分けても、エントリの全項目・並び・行番号・バイト位置、読み飛ばした行の件数と
+     * サンプルが変わらない（空行・読めない行・CRLF・多バイト文字・改行で終わらない最終行・
+     * ファイル内で時刻が前後する行を含む）。
+     */
+    @Test
+    void splitParsingMatchesUnsplit(@org.junit.jupiter.api.io.TempDir Path tmp) throws IOException {
+        StringBuilder big = new StringBuilder();
+        java.util.Random random = new java.util.Random(1);
+        for (int i = 1; i <= 3000; i++) {
+            int r = random.nextInt(100);
+            // 読めない行は後半にだけ置き、サンプルが先頭以外の範囲から選ばれるようにする
+            if (r < 3 && i > 1000) {
+                big.append("not a log line ").append(i).append('\n');
+            } else if (r < 5) {
+                big.append('\n');
+            }
+            int sec = (i * 7 + random.nextInt(5)) % 60;
+            big.append(String.format("10.0.0.%d - - [20/Jun/2025:08:%02d:%02d +0900] \"GET /パス/%d HTTP/1.1\" 200 %d",
+                    i % 250, (i / 60) % 60, sec, i, i))
+                    .append(r < 30 ? "\r\n" : "\n");
+        }
+        big.append("10.0.0.1 - - [20/Jun/2025:09:00:00 +0900] \"GET /last HTTP/1.1\" 200 1");
+        Path a = tmp.resolve("access_log.big");
+        Files.write(a, big.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        Path b = tmp.resolve("access_log.small");
+        Files.write(b, ("bad line\n10.0.0.9 - - [20/Jun/2025:08:30:00 +0900] \"GET /small HTTP/1.1\" 404 0\n")
+                .getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        List<Path> paths = java.util.Arrays.asList(a, b);
+
+        assertTrue(LogStore.splitIntoRanges(paths, 512).size() > 10, "細かく分かれていること");
+        LogStore.LoadResult whole = LogStore.loadEntries(paths, true, LogFormatSpec.DEFAULT, null,
+                Long.MAX_VALUE);
+        LogStore.LoadResult split = LogStore.loadEntries(paths, true, LogFormatSpec.DEFAULT, null, 512);
+
+        assertEquals(describe(whole.entries), describe(split.entries));
+        assertEquals(whole.skippedLines, split.skippedLines);
+        assertTrue(whole.skippedLines > 20, "読めない行が複数の範囲に散らばっていること");
+        assertTrue(whole.skippedSamples.get(0).lineNo > 1000, "サンプルが先頭の範囲の外にあること");
+        assertEquals(samples(whole.skippedSamples), samples(split.skippedSamples));
+        assertEquals("/last", split.entries.get(split.entries.size() - 1).path);
+    }
+
+    /**
+     * 試験: 分けた範囲の途中で利用者定義の書式が失敗したときの行番号。
+     * 担保: エラーに出る行番号は、範囲の中で数えた番号ではなくファイル全体の行番号になる。
+     */
+    @Test
+    void formatFailureReportsFileLineNumberWhenSplit(@org.junit.jupiter.api.io.TempDir Path tmp)
+            throws IOException {
+        // (?x) のコメント内の (?<status> を必須グループと数えてしまう書式。一致した行で失敗する
+        CustomLogFormat broken = new CustomLogFormat("cmt", "コメント入り",
+                "(?x) ^(?<client>\\S+) \\  \\[(?<ts>[^\\]]+)\\] # (?<status>zzz)\n",
+                "dd/MMM/yyyy:HH:mm:ss Z");
+        StringBuilder content = new StringBuilder();
+        for (int i = 1; i < 1500; i++) {
+            content.append("filler line ").append(i).append('\n');
+        }
+        content.append("203.0.113.5 [15/Jun/2026:08:01:12 +0900]\n");
+        for (int i = 1501; i <= 2000; i++) {
+            content.append("filler line ").append(i).append('\n');
+        }
+        Path log = tmp.resolve("access_log");
+        Files.write(log, content.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        List<Path> paths = java.util.Collections.singletonList(log);
+        assertTrue(LogStore.splitIntoRanges(paths, 256).size() > 10, "失敗する行が先頭の範囲にないこと");
+
+        IOException e = org.junit.jupiter.api.Assertions.assertThrows(IOException.class,
+                () -> LogStore.loadEntries(paths, true, LogFormatSpec.of(broken), null, 256));
+        assertTrue(e.getMessage().contains(" 1500 行目"), e.getMessage());
+    }
+
+    private static List<String> describe(List<LogEntry> entries) {
+        List<String> out = new java.util.ArrayList<>();
+        for (LogEntry e : entries) {
+            out.add(e.fileId + "|" + e.lineNo + "|" + e.byteOffset + "|" + e.tsMillis + "|"
+                    + e.tzOffsetMin + "|" + e.host + "|" + e.clientHost + "|" + e.forwardedFor + "|"
+                    + e.method + "|" + e.path + "|" + e.status);
+        }
+        return out;
+    }
+
+    private static List<String> samples(List<SkippedLine> lines) {
+        List<String> out = new java.util.ArrayList<>();
+        for (SkippedLine s : lines) {
+            out.add(s.fileId + ":" + s.lineNo + ":" + s.preview);
+        }
+        return out;
+    }
+
+    /**
      * 試験: 解析できない行をカウントし、サンプルを返す。
      * 担保: 不正行は一覧から除外され、skippedLines に件数が入る。
      */

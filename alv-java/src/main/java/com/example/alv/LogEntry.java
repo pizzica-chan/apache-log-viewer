@@ -41,6 +41,15 @@ public final class LogEntry {
         this.status = status;
     }
 
+    /**
+     * 行番号だけをずらした写しを返す。大きなファイルを分けて読んだとき、範囲の中で数えた
+     * 行番号をファイル全体の行番号へ直すのに使う（{@link LogStore}）。
+     */
+    LogEntry withLineNoOffset(int delta) {
+        return new LogEntry(fileId, lineNo + delta, byteOffset, tsMillis, tzOffsetMin,
+                host, clientHost, forwardedFor, method, path, status);
+    }
+
     /** ISO 8601（タイムゾーンオフセット付き）の文字列表現。 */
     public String timestampIso() {
         return TimeUtil.formatIsoOffset(tsMillis, tzOffsetMin);
