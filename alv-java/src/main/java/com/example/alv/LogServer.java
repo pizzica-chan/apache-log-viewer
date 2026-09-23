@@ -707,12 +707,16 @@ public final class LogServer {
      *
      * <p>{@link QueryFilter#matches} は grep を最後に評価するため、判定が {@code true} の
      * エントリについては {@link #read} が呼ばれている。ただし評価順に依存して誤った行を
-     * 返さないよう、{@link #lastFor} は対象エントリが一致する場合のみ値を返す
+     * 返さないよう、{@link #lastFor} は対象の行が一致する場合のみ値を返す
      * （一致しなければ {@code null} を返し、呼び出し側が読み直す）。
+     *
+     * <p>一致は「同じファイルの同じバイト位置」で判定する。読む行はこの 2 つだけで決まるので、
+     * エントリの参照が違っても（写しを作っても）同じ行なら読み直さずに済む。
      */
-    private static final class LastRawLine implements QueryFilter.RawLine {
+    static final class LastRawLine implements QueryFilter.RawLine {
         private final LineReader reader;
-        private LogEntry lastEntry;
+        private int lastFileId = -1;
+        private long lastByteOffset = -1;
         private String last;
 
         LastRawLine(LineReader reader) {
@@ -722,13 +726,14 @@ public final class LogServer {
         @Override
         public String read(LogEntry entry) throws IOException {
             last = reader.read(entry.fileId, entry.byteOffset);
-            lastEntry = entry;
+            lastFileId = entry.fileId;
+            lastByteOffset = entry.byteOffset;
             return last;
         }
 
-        /** 直近に読んだ行。{@code entry} が直近の対象と異なる場合は {@code null}。 */
+        /** 直近に読んだ行。{@code entry} の行が直近に読んだ行と異なる場合は {@code null}。 */
         String lastFor(LogEntry entry) {
-            return entry == lastEntry ? last : null;
+            return entry.fileId == lastFileId && entry.byteOffset == lastByteOffset ? last : null;
         }
     }
 

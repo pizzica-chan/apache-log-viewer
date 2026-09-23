@@ -5,9 +5,12 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.RandomAccessFile;
 import java.io.UncheckedIOException;
+import java.nio.channels.Channels;
+import java.nio.channels.FileChannel;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -382,7 +385,7 @@ public final class LogStore {
      *
      * <p>実測（100 万行・148 MB のアクセスログ、12 論理コア、Windows 11 / JDK 11、
      * 変更前後を交互に 5 回の中央値を 3 ラウンド取った中央値）:
-     * 1 ファイル 1,485ms → 378ms、3 ファイル（各 49 MB）632ms → 410ms。
+     * 1 ファイル 1,527ms → 361ms、3 ファイル（各 49 MB）646ms → 389ms。
      * 分けない大きさのファイルだけの構成（30 ファイル・300 ファイル）では差はない。
      */
     private static ParseAggregate parseParallel(List<Path> paths, LogFormatSpec format,
@@ -478,7 +481,9 @@ public final class LogStore {
         for (int fileId = 0; fileId < paths.size(); fileId++) {
             Path path = paths.get(fileId);
             long size = Files.size(path);
-            int pieces = (int) Math.min(MAX_RANGES_PER_FILE, Math.max(1, size / splitBytes));
+            // 天井除算。切り捨てだと splitBytes 超〜2 倍未満のファイルが分かれない
+            long wanted = size <= splitBytes ? 1 : (size + splitBytes - 1) / splitBytes;
+            int pieces = (int) Math.min(MAX_RANGES_PER_FILE, wanted);
             long start = 0;
             if (pieces > 1) {
                 try (RandomAccessFile raf = new RandomAccessFile(path.toFile(), "r")) {
@@ -516,22 +521,22 @@ public final class LogStore {
         }
     }
 
-    /** 範囲の先頭から読むストリーム。最後の範囲以外は範囲の終わりで止まる。 */
+    /**
+     * 範囲の先頭から読むストリーム。最後の範囲以外は範囲の終わりで止まる。
+     *
+     * <p>読み始めの位置は {@link FileChannel#position(long)} で直接決める。
+     * {@link InputStream#skip} は要求より少なく進むことがあり、足りないまま読むと
+     * 別の行から読み始めてしまうため使わない。
+     */
     private static InputStream openRange(Range range) throws IOException {
-        InputStream in = Files.newInputStream(range.path);
+        FileChannel channel = FileChannel.open(range.path, StandardOpenOption.READ);
         try {
-            long toSkip = range.start;
-            while (toSkip > 0) {
-                long skipped = in.skip(toSkip);
-                if (skipped <= 0) {
-                    break;
-                }
-                toSkip -= skipped;
-            }
+            channel.position(range.start);
         } catch (IOException e) {
-            in.close();
+            channel.close();
             throw e;
         }
+        InputStream in = Channels.newInputStream(channel);
         return range.isLast() ? in : new BoundedInputStream(in, range.end - range.start);
     }
 

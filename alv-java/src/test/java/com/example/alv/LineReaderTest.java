@@ -108,6 +108,28 @@ class LineReaderTest {
     }
 
     /**
+     * 試験: grep で読んだ行を一覧の応答に使い回す判定（{@code LogServer.LastRawLine}）。
+     * 担保: 同じファイルの同じバイト位置なら、エントリの参照が違っても（写しでも）使い回し、
+     * 違う行なら使い回さない。
+     */
+    @Test
+    void lastRawLineMatchesBySameLine(@TempDir Path tempDir) throws Exception {
+        Path file = tempDir.resolve("access_log");
+        String first = "127.0.0.1 - - [20/Jun/2025:08:01:12 +0900] \"GET /a HTTP/1.1\" 200 1";
+        String second = "127.0.0.1 - - [20/Jun/2025:08:01:13 +0900] \"GET /b HTTP/1.1\" 200 1";
+        Files.write(file, (first + "\n" + second + "\n").getBytes(StandardCharsets.UTF_8));
+        LogEntry a = LogParser.parseLine(first, 0, 1, 0);
+        LogEntry b = LogParser.parseLine(second, 0, 2, first.length() + 1);
+
+        try (LineReader reader = new LineReader(Collections.singletonList(file))) {
+            LogServer.LastRawLine raw = new LogServer.LastRawLine(reader);
+            assertEquals(first, raw.read(a));
+            assertEquals(first, raw.lastFor(a.withLineNoOffset(0)), "写しでも同じ行なら使い回す");
+            assertEquals(null, raw.lastFor(b), "違う行は使い回さない");
+        }
+    }
+
+    /**
      * 試験: ファイル数に応じた窓の大きさ。
      * 担保: ファイルが多くても窓の合計が膨らみすぎず、下限は変更前の読み出し単位を下回らない。
      */

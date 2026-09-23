@@ -188,6 +188,40 @@ class LogStoreTest {
         assertTrue(e.getMessage().contains(" 1500 行目"), e.getMessage());
     }
 
+    /**
+     * 試験: 分ける数の決め方（しきい値の前後）。
+     * 担保: しきい値以下は分けず、しきい値を超えたら 2 倍未満でも分ける（切り捨てで
+     * 「超えたのに分けない」ことがない）。既定のしきい値でも実際に分かれる。
+     */
+    @Test
+    void splitsFilesJustOverThreshold(@org.junit.jupiter.api.io.TempDir Path tmp) throws IOException {
+        byte[] line = "10.0.0.1 - - [20/Jun/2025:08:00:00 +0900] \"GET / HTTP/1.1\" 200 1\n"
+                .getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        int threshold = line.length * 10;
+        assertEquals(1, LogStore.splitIntoRanges(java.util.Collections.singletonList(
+                writeLines(tmp.resolve("at"), line, 10)), threshold).size(), "しきい値ちょうどは分けない");
+        assertEquals(2, LogStore.splitIntoRanges(java.util.Collections.singletonList(
+                writeLines(tmp.resolve("over"), line, 11)), threshold).size(), "少しでも超えたら分ける");
+        assertEquals(2, LogStore.splitIntoRanges(java.util.Collections.singletonList(
+                writeLines(tmp.resolve("under2x"), line, 19)), threshold).size(), "2 倍未満でも分ける");
+        assertEquals(3, LogStore.splitIntoRanges(java.util.Collections.singletonList(
+                writeLines(tmp.resolve("over2x"), line, 21)), threshold).size());
+
+        int justOver = (int) (LogStore.SPLIT_BYTES / line.length) + 1;
+        assertEquals(2, LogStore.splitIntoRanges(java.util.Collections.singletonList(
+                writeLines(tmp.resolve("default"), line, justOver)), LogStore.SPLIT_BYTES).size(),
+                "既定のしきい値を少し超えたファイルも分ける");
+    }
+
+    private static Path writeLines(Path path, byte[] line, int count) throws IOException {
+        try (java.io.OutputStream out = new java.io.BufferedOutputStream(Files.newOutputStream(path))) {
+            for (int i = 0; i < count; i++) {
+                out.write(line);
+            }
+        }
+        return path;
+    }
+
     private static List<String> describe(List<LogEntry> entries) {
         List<String> out = new java.util.ArrayList<>();
         for (LogEntry e : entries) {

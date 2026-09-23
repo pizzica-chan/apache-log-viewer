@@ -33,6 +33,10 @@ import java.util.List;
  * </table>
  * 代わりに、1 行だけ読む詳細表示は 1 回の読み出しが大きくなるぶん遅くなる
  * （52 → 74µs / 176 → 206µs / 162 → 176µs。応答全体から見れば無視できる差）。
+ *
+ * <p><strong>スレッドセーフではない。</strong>ファイルごとのハンドルと窓を読み出しのたびに
+ * 書き換えるため、1 リクエストの中で 1 つのスレッドだけが使うこと。リクエストごとに作って
+ * 使い終えたら閉じる（複数のリクエストやスレッドで共有しない）。
  */
 public final class LineReader implements Closeable {
 
@@ -86,8 +90,8 @@ public final class LineReader implements Closeable {
             // 窓がファイル末尾まで届いていて改行がない = 改行で終わらない最終行
             return decode(window, from, windowLens[fileId] - from);
         }
-        // 窓より長い行。まれなので窓を使わずに読む
-        return readLongLine(fileId, byteOffset);
+        // 窓より長い行。窓に読んだ分はそのまま使い、続きだけを読む
+        return readLongLine(fileId, byteOffset, window, from, windowLens[fileId] - from);
     }
 
     /**
@@ -130,13 +134,20 @@ public final class LineReader implements Closeable {
         windowLens[fileId] = filled;
     }
 
-    /** 窓に収まらない行を、改行かファイル末尾まで読む。 */
-    private String readLongLine(int fileId, long byteOffset) throws IOException {
+    /**
+     * 窓に収まらない行を、改行かファイル末尾まで読む。
+     *
+     * @param head    窓に読めている行の先頭部分（改行を含まない）
+     * @param headOff {@code head} の中での開始位置
+     * @param headLen {@code head} の長さ
+     */
+    private String readLongLine(int fileId, long byteOffset, byte[] head, int headOff, int headLen)
+            throws IOException {
+        byte[] out = Arrays.copyOfRange(head, headOff, headOff + Math.max(headLen * 2, 256));
+        int len = headLen;
         RandomAccessFile raf = handle(fileId);
-        raf.seek(byteOffset);
+        raf.seek(byteOffset + headLen);
         byte[] chunk = new byte[MIN_WINDOW_BYTES];
-        byte[] out = new byte[windowBytes * 2];
-        int len = 0;
         while (true) {
             int n = raf.read(chunk);
             if (n <= 0) {
