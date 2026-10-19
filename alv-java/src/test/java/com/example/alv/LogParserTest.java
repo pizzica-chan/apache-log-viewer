@@ -230,4 +230,43 @@ class LogParserTest {
             assertEquals(p, m.path, p);
         }
     }
+
+    /**
+     * 試験: 数万文字の request（エスケープを多数含むものも）を解析する。
+     * 担保: 引用の読み方が 1 文字ごとに再帰せず、長い URL でも StackOverflowError にならない。
+     */
+    @Test
+    void longRequestDoesNotOverflowStack() {
+        StringBuilder plain = new StringBuilder("/");
+        StringBuilder escaped = new StringBuilder("/");
+        for (int i = 0; i < 50000; i++) {
+            plain.append('a');
+            escaped.append("\\\"");
+        }
+        for (StringBuilder p : new StringBuilder[] {plain, escaped}) {
+            LogEntry e = LogParser.parseLine("127.0.0.1 - - [20/Jun/2025:08:01:12 +0900] \"GET "
+                    + p + " HTTP/1.1\" 200 1 \"-\" \"UA\"");
+            assertNotNull(e);
+            assertEquals(p.toString(), e.path);
+        }
+    }
+
+    /**
+     * 試験: 閉じ引用の直前に単独の {@code \} がある（エスケープしないサーバーが書いた）行を解析する。
+     * 担保: エスケープを読む式で一致しなくても、従来どおり {@code \} までを request として読める。
+     */
+    @Test
+    void loneBackslashBeforeClosingQuote() {
+        LogEntry e = LogParser.parseLine(
+                "127.0.0.1 - - [20/Jun/2025:08:01:12 +0900] \"GET /a HTTP/1.1\\\" 200 1 \"-\" \"UA\"");
+        assertNotNull(e);
+        assertEquals("GET", e.method);
+        assertEquals("/a", e.path);
+        assertEquals(200, e.status);
+        LogEntry m = LogParser.parseLine(LogFormat.MINIMAL,
+                "127.0.0.1 [20/Jun/2025:08:01:12 +0900] \"GET /a HTTP/1.1\\\" 200 1");
+        assertNotNull(m);
+        assertEquals("/a", m.path);
+        assertEquals(200, m.status);
+    }
 }

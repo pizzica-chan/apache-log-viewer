@@ -25,30 +25,49 @@ public final class LogParser {
      * 引用フィールドの中身。Apache は {@code "} を {@code \"}、{@code \} を {@code \\} と
      * エスケープして書くので、{@code [^"]*} では {@code \"} で引用を閉じたと取り違え、
      * 行ごと解析できなくなる。バックスラッシュは次の 1 文字と組で読む。
+     *
+     * <p>{@code (?:[^"\\]|\\.)*} と書くと Java は 1 文字ごとに再帰し、数千文字の URL で
+     * {@link StackOverflowError} になる。ループを展開して独占的量指定子にしたこの形なら
+     * 再帰しない。
      */
-    private static final String QUOTED_BODY = "(?:[^\"\\\\]|\\\\.)*";
+    private static final String ESCAPED_BODY = "[^\"\\\\]*+(?:\\\\.[^\"\\\\]*+)*+";
 
-    private static final Pattern LOG_RE = Pattern.compile(
-            "^(?:\\S+:\\d+\\s+)?"
-            + "(?<leading>.+?)\\s+"
-            + "(?<ident>\\S+)\\s+"
-            + "(?<authuser>\\S+)\\s+"
-            + "\\[(?<timestamp>[^\\]]+)\\]\\s+"
-            + "\"(?<request>" + QUOTED_BODY + ")\"\\s+"
-            + "(?<status>\\d+|-)\\s+"
-            + "(?<bytes>\\S+)");
+    /**
+     * エスケープを読まない引用フィールドの中身。{@link #ESCAPED_BODY} で一致しない行の
+     * 読み直しに使う（Apache 以外が書いた、閉じ引用の直前に {@code \} が単独で来る行など）。
+     */
+    private static final String PLAIN_BODY = "[^\"]*";
+
+    private static final Pattern LOG_RE = logPattern(ESCAPED_BODY);
+    private static final Pattern LOG_RE_PLAIN = logPattern(PLAIN_BODY);
+    private static final Pattern MINIMAL_RE = minimalPattern(ESCAPED_BODY);
+    private static final Pattern MINIMAL_RE_PLAIN = minimalPattern(PLAIN_BODY);
+
+    private static Pattern logPattern(String requestBody) {
+        return Pattern.compile(
+                "^(?:\\S+:\\d+\\s+)?"
+                + "(?<leading>.+?)\\s+"
+                + "(?<ident>\\S+)\\s+"
+                + "(?<authuser>\\S+)\\s+"
+                + "\\[(?<timestamp>[^\\]]+)\\]\\s+"
+                + "\"(?<request>" + requestBody + ")\"\\s+"
+                + "(?<status>\\d+|-)\\s+"
+                + "(?<bytes>\\S+)");
+    }
 
     /**
      * ident と authuser を出力しない構成（{@code %h %t "%r" %>s %b}）。
-     * {@link #LOG_RE} はこの 2 つを必須にしているため別の式が要る。
+     * {@link #logPattern} はこの 2 つを必須にしているため別の式が要る。
      */
-    private static final Pattern MINIMAL_RE = Pattern.compile(
-            "^(?:\\S+:\\d+\\s+)?"
-            + "(?<leading>.+?)\\s+"
-            + "\\[(?<timestamp>[^\\]]+)\\]\\s+"
-            + "\"(?<request>" + QUOTED_BODY + ")\"\\s+"
-            + "(?<status>\\d+|-)\\s+"
-            + "(?<bytes>\\S+)");
+    private static Pattern minimalPattern(String requestBody) {
+        return Pattern.compile(
+                "^(?:\\S+:\\d+\\s+)?"
+                + "(?<leading>.+?)\\s+"
+                + "\\[(?<timestamp>[^\\]]+)\\]\\s+"
+                + "\"(?<request>" + requestBody + ")\"\\s+"
+                + "(?<status>\\d+|-)\\s+"
+                + "(?<bytes>\\S+)");
+    }
 
     private static final Pattern REQUEST_RE = Pattern.compile("^(\\S+)\\s+(\\S+)\\s+(\\S+)$");
 
@@ -73,9 +92,16 @@ public final class LogParser {
     public static LogEntry parseLine(LogFormat fmt, String raw, int fileId, int lineNo,
             long byteOffset) {
         String line = stripEol(raw);
-        Matcher m = (fmt == LogFormat.MINIMAL ? MINIMAL_RE : LOG_RE).matcher(line);
+        boolean minimal = fmt == LogFormat.MINIMAL;
+        Matcher m = (minimal ? MINIMAL_RE : LOG_RE).matcher(line);
         if (!m.lookingAt()) {
-            return null;
+            if (line.indexOf('\\') < 0) {
+                return null; // バックスラッシュが無ければ読み直しても結果は同じ
+            }
+            m = (minimal ? MINIMAL_RE_PLAIN : LOG_RE_PLAIN).matcher(line);
+            if (!m.lookingAt()) {
+                return null;
+            }
         }
         long[] ts = TimeUtil.parseApacheTimestamp(m.group("timestamp"));
         if (ts == null) {
