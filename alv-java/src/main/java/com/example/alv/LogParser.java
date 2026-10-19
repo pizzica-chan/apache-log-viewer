@@ -21,13 +21,20 @@ public final class LogParser {
     private LogParser() {
     }
 
+    /**
+     * 引用フィールドの中身。Apache は {@code "} を {@code \"}、{@code \} を {@code \\} と
+     * エスケープして書くので、{@code [^"]*} では {@code \"} で引用を閉じたと取り違え、
+     * 行ごと解析できなくなる。バックスラッシュは次の 1 文字と組で読む。
+     */
+    private static final String QUOTED_BODY = "(?:[^\"\\\\]|\\\\.)*";
+
     private static final Pattern LOG_RE = Pattern.compile(
             "^(?:\\S+:\\d+\\s+)?"
             + "(?<leading>.+?)\\s+"
             + "(?<ident>\\S+)\\s+"
             + "(?<authuser>\\S+)\\s+"
             + "\\[(?<timestamp>[^\\]]+)\\]\\s+"
-            + "\"(?<request>[^\"]*)\"\\s+"
+            + "\"(?<request>" + QUOTED_BODY + ")\"\\s+"
             + "(?<status>\\d+|-)\\s+"
             + "(?<bytes>\\S+)");
 
@@ -39,7 +46,7 @@ public final class LogParser {
             "^(?:\\S+:\\d+\\s+)?"
             + "(?<leading>.+?)\\s+"
             + "\\[(?<timestamp>[^\\]]+)\\]\\s+"
-            + "\"(?<request>[^\"]*)\"\\s+"
+            + "\"(?<request>" + QUOTED_BODY + ")\"\\s+"
             + "(?<status>\\d+|-)\\s+"
             + "(?<bytes>\\S+)");
 

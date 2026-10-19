@@ -208,4 +208,26 @@ class LogParserTest {
         assertNotNull(b);
         assertSame(a.method, b.method);
     }
+
+    /**
+     * 試験: パスに Apache がエスケープした引用符（{@code \"}）や {@code \\\"} を含む行を解析する。
+     * 担保: エスケープされた {@code "} で request の引用を閉じたと取り違えず、行が解析できる。
+     */
+    @Test
+    void escapedQuoteInRequest() {
+        String[] paths = {"/a\\\"b", "/a\\\\\\\"b", "/a\\\\\\b", "/a\\\\"};
+        for (String p : paths) {
+            String line = "127.0.0.1 - - [20/Jun/2025:08:01:12 +0900] \"GET " + p
+                    + " HTTP/1.1\" 404 1 \"-\" \"UA \\\"x\\\"\"";
+            LogEntry e = LogParser.parseLine(line);
+            assertNotNull(e, p);
+            assertEquals("GET", e.method, p);
+            assertEquals(p, e.path, p);
+            assertEquals(404, e.status, p);
+            LogEntry m = LogParser.parseLine(LogFormat.MINIMAL,
+                    "127.0.0.1 [20/Jun/2025:08:01:12 +0900] \"GET " + p + " HTTP/1.1\" 404 1");
+            assertNotNull(m, p);
+            assertEquals(p, m.path, p);
+        }
+    }
 }
