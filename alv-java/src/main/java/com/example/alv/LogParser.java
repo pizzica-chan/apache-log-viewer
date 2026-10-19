@@ -87,7 +87,9 @@ public final class LogParser {
     /**
      * 書式を指定して 1 行を解析する。解析できない場合は {@code null}。
      *
-     * <p>書式は取り込み開始時に 1 つへ確定させる前提のため、1 行あたりに試す正規表現は 1 本だけ。
+     * <p>指定された書式に対応する、エスケープを読む正規表現を試す。
+     * 一致せず、行にバックスラッシュがある場合はエスケープを読まない式で読み直すため、
+     * ログ行全体の解析に試す正規表現は 1 行あたり最大 2 本。
      */
     public static LogEntry parseLine(LogFormat fmt, String raw, int fileId, int lineNo,
             long byteOffset) {
