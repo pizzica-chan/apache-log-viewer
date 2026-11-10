@@ -363,8 +363,16 @@ public final class LogServer {
         // 画面は必ず文字列を送るが、API を直に叩かれると項目ごと欠けることがある。
         // 欠け・null は空文字と同じに扱う（500 にはしない）。sample が空なら
         // 理由つきの 400、timestamp が空なら正規表現だけを見た 200 になる。
-        String sample = orEmpty(jsonString(obj, "sample"));
-        String timestamp = orEmpty(jsonString(obj, "timestamp")).trim();
+        String sample;
+        String timestamp;
+        try {
+            sample = orEmpty(jsonString(obj, "sample"));
+            timestamp = orEmpty(jsonString(obj, "timestamp")).trim();
+        } catch (IllegalArgumentException e) {
+            // 文字列でない値（数値や配列）。下の書式の検査と同じく 400 で理由を返す
+            sendErrorJson(ex, 400, e.getMessage());
+            return;
+        }
         boolean timestampChecked = !timestamp.isEmpty();
         JsonObject payload = new JsonObject();
         CustomLogFormat format;
@@ -651,7 +659,8 @@ public final class LogServer {
         long limit;
         long offset;
         try {
-            limit = Math.min(parseLong(p.get("limit"), DEFAULT_LIMIT), MAX_LIMIT);
+            // 負の値は 0 件として扱う（応答の limit に負の値をそのまま返さない）
+            limit = Math.max(0, Math.min(parseLong(p.get("limit"), DEFAULT_LIMIT), MAX_LIMIT));
             offset = Math.max(parseLong(p.get("offset"), 0), 0);
         } catch (NumberFormatException e) {
             sendErrorJson(ex, 400, "limit/offset は整数で指定してください");
